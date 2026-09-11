@@ -1,0 +1,1517 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "FriPay API Documentation",
+        "version": "1.0.0",
+        "description": "API FriPay - Transferts inter-op\u00e9rateurs Mobile Money pour le B\u00e9nin. Endpoint de documentation: `\/api\/docs\/api`"
+    },
+    "servers": [
+        {
+            "url": "http:\/\/payments.fripay.local\/api"
+        }
+    ],
+    "paths": {
+        "\/up": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "const": "ok"
+                                        },
+                                        "service": {
+                                            "type": "string",
+                                            "const": "FriPay Payments"
+                                        },
+                                        "version": {
+                                            "type": "string",
+                                            "const": "v1"
+                                        }
+                                    },
+                                    "required": [
+                                        "status",
+                                        "service",
+                                        "version"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "\/v1\/qr\/generate": {
+            "post": {
+                "operationId": "offlineQr.generate",
+                "description": "Cr\u00e9e un QR Code contenant une valeur mon\u00e9taire sign\u00e9e cryptographiquement\navec une cl\u00e9 Ed25519. Le QR Code peut \u00eatre partag\u00e9 hors-ligne (affichage\n\u00e0 l'\u00e9cran, capture d'\u00e9cran, etc.) et v\u00e9rifi\u00e9 sans connexion Internet.\n\nLe QR Code contient : UUID, montant, devise, cl\u00e9 publique de l'exp\u00e9diteur,\nhorodatage, et date d'expiration. Le tout est sign\u00e9 avec la cl\u00e9 secr\u00e8te\nEd25519 de l'exp\u00e9diteur.",
+                "summary": "G\u00e9n\u00e9rer un QR Code sign\u00e9",
+                "tags": [
+                    "QR Codes Hors-ligne",
+                    "OfflineQr"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "amount": {
+                                        "type": "integer",
+                                        "minimum": 100,
+                                        "maximum": 500000
+                                    },
+                                    "currency": {
+                                        "type": "string",
+                                        "maxLength": 3
+                                    },
+                                    "expires_minutes": {
+                                        "type": "integer",
+                                        "minimum": 5,
+                                        "maximum": 1440
+                                    },
+                                    "recipient_hint": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ],
+                                        "maxLength": 100
+                                    }
+                                },
+                                "required": [
+                                    "amount"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "qr_code": {
+                                            "type": "string"
+                                        },
+                                        "uuid": {
+                                            "type": "string"
+                                        },
+                                        "amount": {
+                                            "type": "string"
+                                        },
+                                        "currency": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "XOF"
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                        "expires_at": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "string",
+                                            "const": "active"
+                                        }
+                                    },
+                                    "required": [
+                                        "qr_code",
+                                        "uuid",
+                                        "amount",
+                                        "currency",
+                                        "expires_at",
+                                        "status"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/qr\/receive": {
+            "post": {
+                "operationId": "offlineQr.receive",
+                "description": "Enregistre la r\u00e9ception d'un QR Code par un destinataire. Le QR Code\npasse du statut `active` \u00e0 `received` et est associ\u00e9 au r\u00e9cepteur.\nLe r\u00e9cepteur ne peut pas recevoir son propre QR Code.",
+                "summary": "Recevoir un QR Code (stocker dans le coffre local)",
+                "tags": [
+                    "QR Codes Hors-ligne",
+                    "OfflineQr"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "qr_content": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "qr_content"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "const": "QR Code re\u00e7u et stock\u00e9 dans votre coffre"
+                                        },
+                                        "uuid": {
+                                            "type": "string"
+                                        },
+                                        "amount": {
+                                            "type": "integer"
+                                        },
+                                        "status": {
+                                            "type": "string",
+                                            "const": "received"
+                                        }
+                                    },
+                                    "required": [
+                                        "message",
+                                        "uuid",
+                                        "amount",
+                                        "status"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    },
+                    "404": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "const": "QR_NOT_FOUND"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "const": "QR Code inconnu"
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/qr\/redeem": {
+            "post": {
+                "operationId": "offlineQr.redeem",
+                "description": "D\u00e9clenche le settlement du QR Code via le connecteur op\u00e9rateur\n(MTN MoMo, Moov Money, Celtiis). Le QR Code passe du statut\n`received`\/`active` \u00e0 `redeemed`.\n\nLe settlement est asynchrone : la validation finale est trait\u00e9e\npar le pipeline de transfert existant (outbox + ConnectorRegistry).",
+                "summary": "Encaisser un QR Code",
+                "tags": [
+                    "QR Codes Hors-ligne",
+                    "OfflineQr"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "uuid": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "uuid"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "const": "QR Code encaiss\u00e9. Le settlement sera trait\u00e9 via le connecteur op\u00e9rateur."
+                                        },
+                                        "uuid": {
+                                            "type": "string"
+                                        },
+                                        "amount": {
+                                            "type": "integer"
+                                        },
+                                        "status": {
+                                            "type": "string",
+                                            "const": "redeemed"
+                                        }
+                                    },
+                                    "required": [
+                                        "message",
+                                        "uuid",
+                                        "amount",
+                                        "status"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "const": "NOT_OWNER"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "const": "Ce QR Code ne vous appartient pas"
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    },
+                    "404": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "const": "QR_NOT_FOUND"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/qr\/transfer": {
+            "post": {
+                "operationId": "offlineQr.transfer",
+                "description": "Transf\u00e8re la propri\u00e9t\u00e9 d'un QR Code \u00e0 un autre utilisateur\n(ex: un marchand). Le destinataire est identifi\u00e9 par son num\u00e9ro\nde t\u00e9l\u00e9phone. Seul le propri\u00e9taire actuel du QR Code peut le transf\u00e9rer.",
+                "summary": "Transf\u00e9rer un QR Code \u00e0 un autre utilisateur",
+                "tags": [
+                    "QR Codes Hors-ligne",
+                    "OfflineQr"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "uuid": {
+                                        "type": "string"
+                                    },
+                                    "recipient_phone": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "uuid",
+                                    "recipient_phone"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "const": "QR Code transf\u00e9r\u00e9"
+                                        },
+                                        "uuid": {
+                                            "type": "string"
+                                        },
+                                        "amount": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "message",
+                                        "uuid",
+                                        "amount"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "const": "RECIPIENT_NOT_FOUND"
+                                                }
+                                            },
+                                            "required": [
+                                                "error"
+                                            ]
+                                        },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "error": {
+                                                    "type": "string",
+                                                    "const": "QR_NOT_FOUND"
+                                                }
+                                            },
+                                            "required": [
+                                                "error"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "const": "NOT_OWNER"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/qr\/revoke": {
+            "post": {
+                "operationId": "offlineQr.revoke",
+                "description": "R\u00e9voque un QR Code non utilis\u00e9. L'exp\u00e9diteur peut r\u00e9voquer \u00e0 tout\nmoment un QR Code qui n'a pas encore \u00e9t\u00e9 encaiss\u00e9. Le QR Code passe\nau statut `revoked`.",
+                "summary": "R\u00e9voquer un QR Code",
+                "tags": [
+                    "QR Codes Hors-ligne",
+                    "OfflineQr"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "uuid": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "uuid"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "const": "QR Code r\u00e9voqu\u00e9"
+                                        },
+                                        "uuid": {
+                                            "type": "string"
+                                        },
+                                        "refund": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "message",
+                                        "uuid",
+                                        "refund"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    },
+                    "403": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "const": "NOT_SENDER"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "const": "QR_NOT_FOUND"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/qr\/{uuid}\/status": {
+            "get": {
+                "operationId": "offlineQr.status",
+                "description": "Retourne le statut d\u00e9taill\u00e9 d'un QR Code avec l'historique complet\nde ses \u00e9v\u00e9nements (g\u00e9n\u00e9ration, r\u00e9ception, encaissement, r\u00e9vocation).",
+                "summary": "Obtenir le statut d'un QR Code",
+                "tags": [
+                    "QR Codes Hors-ligne",
+                    "OfflineQr"
+                ],
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "uuid": {
+                                            "type": "string"
+                                        },
+                                        "amount": {
+                                            "type": "integer"
+                                        },
+                                        "currency": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "string"
+                                        },
+                                        "created_at": {
+                                            "type": "string"
+                                        },
+                                        "expires_at": {
+                                            "type": "string"
+                                        },
+                                        "received_at": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "redeemed_at": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "events": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "type": {
+                                                        "type": "string"
+                                                    },
+                                                    "actor_id": {
+                                                        "type": [
+                                                            "string",
+                                                            "null"
+                                                        ]
+                                                    },
+                                                    "timestamp": {
+                                                        "type": "string"
+                                                    },
+                                                    "metadata": {
+                                                        "type": [
+                                                            "array",
+                                                            "null"
+                                                        ],
+                                                        "items": {
+                                                            "__PHP_Incomplete_Class_Name": "stdClass"
+                                                        }
+                                                    }
+                                                },
+                                                "required": [
+                                                    "type",
+                                                    "actor_id",
+                                                    "timestamp",
+                                                    "metadata"
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "uuid",
+                                        "amount",
+                                        "currency",
+                                        "status",
+                                        "created_at",
+                                        "expires_at",
+                                        "received_at",
+                                        "redeemed_at",
+                                        "events"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string",
+                                            "const": "QR_NOT_FOUND"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/qr\/verify": {
+            "post": {
+                "operationId": "offlineQr.verify",
+                "description": "V\u00e9rifie la signature cryptographique Ed25519 d'un QR Code scann\u00e9.\nCe endpoint est **public** (pas d'authentification requise) pour permettre\nla v\u00e9rification hors-ligne via un proxy ou en mode d\u00e9grad\u00e9.\n\nLa v\u00e9rification est purement cryptographique : si la signature est valide,\nle QR Code n'a pas \u00e9t\u00e9 alt\u00e9r\u00e9. La v\u00e9rification du statut en base est\ninformative (statut `offline_unverified` si pas encore synchronis\u00e9).",
+                "summary": "V\u00e9rifier la validit\u00e9 d'un QR Code (hors-ligne)",
+                "tags": [
+                    "QR Codes Hors-ligne",
+                    "OfflineQr"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "qr_content": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "qr_content"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "valid": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "string",
+                                            "const": "offline_unverified"
+                                        },
+                                        "error": {
+                                            "type": "string"
+                                        },
+                                        "data": {
+                                            "type": "string"
+                                        },
+                                        "amount": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "currency": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "valid",
+                                        "status",
+                                        "error",
+                                        "data",
+                                        "amount",
+                                        "currency"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/transfers\/quote": {
+            "post": {
+                "operationId": "transfer.quote",
+                "tags": [
+                    "Transfer"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "$ref": "#\/components\/schemas\/QuoteRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "recipient_operator": {
+                                                    "type": "string"
+                                                },
+                                                "recipient_name": {
+                                                    "type": "null"
+                                                },
+                                                "amount": {
+                                                    "type": "number"
+                                                },
+                                                "fee_amount": {
+                                                    "type": "number"
+                                                },
+                                                "total_debited": {
+                                                    "type": "string"
+                                                },
+                                                "rail": {
+                                                    "type": "string"
+                                                },
+                                                "aggregator_provider": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "estimated_delivery_seconds": {
+                                                    "type": "integer",
+                                                    "const": 30
+                                                },
+                                                "quote_token": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "recipient_operator",
+                                                "recipient_name",
+                                                "amount",
+                                                "fee_amount",
+                                                "total_debited",
+                                                "rail",
+                                                "aggregator_provider",
+                                                "estimated_delivery_seconds",
+                                                "quote_token"
+                                            ]
+                                        },
+                                        {
+                                            "type": "string"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/transfers": {
+            "post": {
+                "operationId": "transfer.initiate",
+                "tags": [
+                    "Transfer"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "$ref": "#\/components\/schemas\/InitiateTransferRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "transaction_id": {
+                                            "type": "string"
+                                        },
+                                        "reference": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "transaction_id",
+                                        "reference",
+                                        "status"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/ValidationException"
+                    }
+                }
+            },
+            "get": {
+                "operationId": "transfer.index",
+                "tags": [
+                    "Transfer"
+                ],
+                "parameters": [
+                    {
+                        "name": "sort",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "default": "-initiated_at"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "meta": {
+                                            "type": "object",
+                                            "properties": {
+                                                "page": {
+                                                    "type": "string"
+                                                },
+                                                "size": {
+                                                    "type": "string"
+                                                },
+                                                "total": {
+                                                    "type": "string"
+                                                },
+                                                "has_next": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "page",
+                                                "size",
+                                                "total",
+                                                "has_next"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "data",
+                                        "meta"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/transfers\/{transactionId}": {
+            "get": {
+                "operationId": "transfer.show",
+                "tags": [
+                    "Transfer"
+                ],
+                "parameters": [
+                    {
+                        "name": "transactionId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "`TransactionResource`",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "$ref": "#\/components\/schemas\/TransactionResource"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/transfers\/{transactionId}\/cancel": {
+            "post": {
+                "operationId": "transfer.cancel",
+                "tags": [
+                    "Transfer"
+                ],
+                "parameters": [
+                    {
+                        "name": "transactionId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "`TransactionResource`",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "$ref": "#\/components\/schemas\/TransactionResource"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string",
+                                            "const": "TRANSACTION_NOT_CANCELLABLE"
+                                        },
+                                        "title": {
+                                            "type": "string",
+                                            "const": "Annulation impossible"
+                                        },
+                                        "status": {
+                                            "type": "integer",
+                                            "const": 409
+                                        },
+                                        "detail": {
+                                            "type": "string",
+                                            "const": "Cette transaction ne peut plus \u00eatre annul\u00e9e."
+                                        },
+                                        "request_id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "__PHP_Incomplete_Class_Name": "stdClass"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "string"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "type",
+                                        "title",
+                                        "status",
+                                        "detail",
+                                        "request_id"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "\/v1\/webhooks\/aggregator\/{provider}": {
+            "post": {
+                "operationId": "webhook.handleAggregator",
+                "summary": "POST \/api\/v1\/webhooks\/aggregator\/{provider}",
+                "tags": [
+                    "Webhook"
+                ],
+                "parameters": [
+                    {
+                        "name": "provider",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "const": "ok"
+                                        }
+                                    },
+                                    "required": [
+                                        "status"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string",
+                                            "const": "INVALID_SIGNATURE"
+                                        },
+                                        "title": {
+                                            "type": "string",
+                                            "const": "Signature invalide"
+                                        },
+                                        "status": {
+                                            "type": "integer",
+                                            "const": 401
+                                        },
+                                        "detail": {
+                                            "type": "string",
+                                            "const": "La signature du webhook est invalide."
+                                        },
+                                        "request_id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "__PHP_Incomplete_Class_Name": "stdClass"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "type",
+                                        "title",
+                                        "status",
+                                        "detail",
+                                        "request_id"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "\/v1\/webhooks\/pispi": {
+            "post": {
+                "operationId": "webhook.handlePispi",
+                "summary": "POST \/api\/v1\/webhooks\/pispi",
+                "tags": [
+                    "Webhook"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "const": "ok"
+                                        }
+                                    },
+                                    "required": [
+                                        "status"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string",
+                                            "const": "INVALID_SIGNATURE"
+                                        },
+                                        "title": {
+                                            "type": "string",
+                                            "const": "Signature invalide"
+                                        },
+                                        "status": {
+                                            "type": "integer",
+                                            "const": 401
+                                        },
+                                        "detail": {
+                                            "type": "string",
+                                            "const": "La signature du webhook est invalide."
+                                        },
+                                        "request_id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "__PHP_Incomplete_Class_Name": "stdClass"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "type",
+                                        "title",
+                                        "status",
+                                        "detail",
+                                        "request_id"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "\/v1\/webhooks\/mtn": {
+            "post": {
+                "operationId": "webhook.handleMtn",
+                "description": "Callback natif MTN MoMo (produit Disbursements). MTN n'envoie pas de\nsignature HMAC : la notification est enregistree puis appliquee.\nPayload : { externalId, financialTransactionId, status, amount, ... }",
+                "summary": "POST \/api\/v1\/webhooks\/mtn",
+                "tags": [
+                    "Webhook"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "const": "ok"
+                                        }
+                                    },
+                                    "required": [
+                                        "status"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "InitiateTransferRequest": {
+                "type": "object",
+                "properties": {
+                    "quote_token": {
+                        "type": "string",
+                        "minLength": 32,
+                        "maxLength": 32
+                    },
+                    "sender_account_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "recipient_phone": {
+                        "type": "string",
+                        "pattern": "^\\+229\\d{8}$"
+                    },
+                    "amount": {
+                        "type": "number",
+                        "minimum": 100
+                    },
+                    "pin": {
+                        "type": "string",
+                        "minLength": 4,
+                        "maxLength": 4
+                    }
+                },
+                "required": [
+                    "quote_token",
+                    "sender_account_id",
+                    "recipient_phone",
+                    "amount",
+                    "pin"
+                ],
+                "title": "InitiateTransferRequest"
+            },
+            "QuoteRequest": {
+                "type": "object",
+                "properties": {
+                    "sender_account_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "recipient_phone": {
+                        "type": "string",
+                        "pattern": "^\\+229\\d{8}$"
+                    },
+                    "amount": {
+                        "type": "number",
+                        "minimum": 100,
+                        "maximum": 5000000
+                    }
+                },
+                "required": [
+                    "sender_account_id",
+                    "recipient_phone",
+                    "amount"
+                ],
+                "title": "QuoteRequest"
+            },
+            "TransactionResource": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "reference": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "fee_amount": {
+                        "type": "number"
+                    },
+                    "total_debited": {
+                        "type": "number"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "rail_used": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "recipient_phone": {
+                        "type": "string"
+                    },
+                    "recipient_operator": {
+                        "type": "string"
+                    },
+                    "recipient_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "failure_reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "initiated_at": {
+                        "type": "string"
+                    },
+                    "completed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "reference",
+                    "amount",
+                    "fee_amount",
+                    "total_debited",
+                    "currency",
+                    "status",
+                    "rail_used",
+                    "recipient_phone",
+                    "recipient_operator",
+                    "recipient_name",
+                    "failure_reason",
+                    "initiated_at",
+                    "completed_at"
+                ],
+                "title": "TransactionResource"
+            }
+        },
+        "responses": {
+            "AuthenticationException": {
+                "description": "Unauthenticated",
+                "content": {
+                    "application\/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "Error overview."
+                                }
+                            },
+                            "required": [
+                                "message"
+                            ]
+                        }
+                    }
+                }
+            },
+            "ValidationException": {
+                "description": "Validation error",
+                "content": {
+                    "application\/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "Errors overview."
+                                },
+                                "errors": {
+                                    "type": "object",
+                                    "description": "A detailed description of each field that failed validation.",
+                                    "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            },
+                            "required": [
+                                "message",
+                                "errors"
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,29 @@
+# --- Fichiers d'environnement (secrets) ---
+.env
+.env.*
+!.env.example
+
+# --- Dépendances ---
+vendor/
+node_modules/
+
+# --- Cache / logs / état runtime ---
+*/storage/logs/*
+*/storage/framework/cache/*
+*/storage/framework/sessions/*
+*/storage/framework/views/*
+*/storage/framework/testing/*
+*/storage/circuit-breaker/*.json
+*/storage/rate-limiter/*.json
+!*/storage/**/.gitkeep
+
+# --- PHPUnit / outils ---
+.phpunit.result.cache
+.phpunit.cache/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

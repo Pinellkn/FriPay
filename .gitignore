@@ -1,0 +1,43 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Backend (Laravel) ---
+api-backend/**/vendor/
+api-backend/**/node_modules/
+api-backend/**/storage/logs/*
+api-backend/**/storage/framework/cache/*
+api-backend/**/storage/framework/sessions/*
+api-backend/**/storage/framework/views/*
+api-backend/**/storage/framework/testing/*
+api-backend/**/storage/circuit-breaker/*.json
+api-backend/**/storage/rate-limiter/*.json
+!api-backend/**/storage/**/.gitkeep
+api-backend/**/.phpunit.result.cache
+api-backend/**/.phpunit.cache/
+
+# --- Mobile (Flutter) ---
+mobile-app/**/build/
+mobile-app/**/.dart_tool/
+mobile-app/**/.flutter-plugins-dependencies
+mobile-app/**/.pub-cache/
+mobile-app/**/.pub/
+mobile-app/**/ios/Flutter/.last_build_id
+mobile-app/**/android/app/debug
+mobile-app/**/android/app/profile
+mobile-app/**/android/app/release
+mobile-app/**/*.iml
+mobile-app/**/*.ipr
+mobile-app/**/*.iws
+
+# --- Données sensibles (dumps DB, exclus volontairement) ---
+**/fripay.sql
+**/fripay_database_dump.sql
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
