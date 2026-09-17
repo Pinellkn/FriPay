@@ -13,15 +13,24 @@ class AuthService
     private const TOKEN_TTL_MINUTES = 15;
     private const REFRESH_TOKEN_TTL_DAYS = 30;
 
+    public function __construct(
+        private readonly FripayNumberService $fripayNumbers = new FripayNumberService(),
+    ) {}
+
     /**
      * Create a new user account.
+     *
+     * Le numÃ©ro FriPay (cahier Â§1) est gÃ©nÃ©rÃ© et attribuÃ© AUTOMATIQUEMENT
+     * ici : l'utilisateur ne le choisit jamais.
      */
     public function register(array $data): User
     {
         return User::create([
             'phone_number' => $data['phone_number'],
+            'fripay_number' => $this->fripayNumbers->generate(),
             'first_name' => $data['first_name'] ?? null,
             'last_name' => $data['last_name'] ?? null,
+            'email' => $data['email'] ?? null,
             'kyc_status' => 'pending',
             'client_type' => 'P',
             'status' => 'active',
@@ -63,9 +72,9 @@ class AuthService
      * Refresh tokens using a valid refresh token.
      *
      * Optimisation : lookup par empreinte token (sha256 des 32 premiers
-     * caractères) pour éviter de charger toutes les sessions actives.
-     * L'empreinte est stockée en clair et indexée pour une recherche O(1).
-     * Hash::check est appelé uniquement sur le sous-ensemble correspondant.
+     * caractï¿½res) pour ï¿½viter de charger toutes les sessions actives.
+     * L'empreinte est stockï¿½e en clair et indexï¿½e pour une recherche O(1).
+     * Hash::check est appelï¿½ uniquement sur le sous-ensemble correspondant.
      */
     public function refreshTokens(string $refreshToken): ?array
     {

@@ -9,6 +9,8 @@
     <!-- Notifications système (obligatoire à partir d'Android 13) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Répertoire téléphonique (ajout de contact via le picker natif) -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <application
         android:label="FriPay"

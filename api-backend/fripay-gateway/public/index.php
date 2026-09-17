@@ -74,8 +74,11 @@ if ($method === 'OPTIONS') {
 // --- Endpoint de monitoring interne (IP whitelist) ---
 if ($path === '/__gateway/status' && $method === 'GET') {
     $allowedIps = $config['monitoring']['allowed_ips'] ?? ['127.0.0.1', '::1'];
+    $debugKey   = $config['monitoring']['debug_key'] ?? null;
+    $providedKey = $_SERVER['HTTP_X_FRIPAY_DEBUG_KEY'] ?? '';
+    $hasValidDebugKey = $debugKey && hash_equals($debugKey, $providedKey);
 
-    if (!in_array($clientIp, $allowedIps, true)) {
+    if (!in_array($clientIp, $allowedIps, true) && !$hasValidDebugKey) {
         sendCorsHeaders($config['cors'], $requestId);
         http_response_code(403);
         header('Content-Type: application/json; charset=utf-8');

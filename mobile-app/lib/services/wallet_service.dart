@@ -71,24 +71,24 @@ class WalletService {
 
   /// POST /wallet/topup
   /// Dépôt manuel temporaire, en attendant un vrai rail de cash-in
-  /// (voir README backend). [amount] en XOF (entier). [agentCode] n'est pas
+  /// (voir README backend). [amount] en XOF (entier). [phoneNumber] n'est pas
   /// validé contre un registre réel (aucun réseau d'agents encore construit)
   /// — juste enregistré à titre indicatif.
-  Future<Wallet> topup(int amount, {required String pin, String? agentCode}) async {
+  Future<Wallet> topup(int amount, {required String pin, String? phoneNumber}) async {
     final res = await _api.post('/wallet/topup', body: {
       'amount': amount,
       'pin': pin,
-      if (agentCode != null && agentCode.isNotEmpty) 'agent_code': agentCode,
+      if (phoneNumber != null && phoneNumber.isNotEmpty) 'phone_number': phoneNumber,
     });
     return Wallet.fromJson(res as Map<String, dynamic>);
   }
 
   /// POST /wallet/withdraw — même logique temporaire que topup.
-  Future<Wallet> withdraw(int amount, {required String pin, String? agentCode}) async {
+  Future<Wallet> withdraw(int amount, {required String pin, String? phoneNumber}) async {
     final res = await _api.post('/wallet/withdraw', body: {
       'amount': amount,
       'pin': pin,
-      if (agentCode != null && agentCode.isNotEmpty) 'agent_code': agentCode,
+      if (phoneNumber != null && phoneNumber.isNotEmpty) 'phone_number': phoneNumber,
     });
     return Wallet.fromJson(res as Map<String, dynamic>);
   }

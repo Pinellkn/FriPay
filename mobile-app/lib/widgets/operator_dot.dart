@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../models/models.dart';
-import '../theme/app_colors.dart';
+import 'package:fripay_app/models/models.dart';
+import 'package:fripay_app/theme/app_colors.dart';
 
 /// Petit disque de couleur identifiant un opérateur (dotClass du web).
 class OperatorDot extends StatelessWidget {

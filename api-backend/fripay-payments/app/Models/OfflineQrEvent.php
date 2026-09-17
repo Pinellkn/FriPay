@@ -26,6 +26,12 @@ class OfflineQrEvent extends Model
     const EVENT_REVOKED                = 'revoked';
     const EVENT_RECONCILIATION_OK      = 'reconciliation_ok';
     const EVENT_RECONCILIATION_DOUBLE  = 'reconciliation_double_spend';
+    const EVENT_HELD                   = 'held';
+    const EVENT_SETTLED                = 'settled';
+    const EVENT_EXTERNAL_CODE_ISSUED   = 'external_code_issued';
+    const EVENT_EXTERNAL_ATTEMPT_FAILED = 'external_attempt_failed';
+    const EVENT_EXTERNAL_CLAIMED       = 'external_claimed';
+    const EVENT_CANCELLED_REFUNDED     = 'cancelled_refunded';
 
     public function offlineQrCode(): BelongsTo
     {

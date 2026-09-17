@@ -8,7 +8,6 @@ import '../../widgets/fripay_logo.dart';
 import '../../widgets/operator_dot.dart';
 import '../../widgets/fripay_refresh.dart';
 import '../auth/login_screen.dart';
-import '../offline/offline_screen.dart';
 
 /// Page d'accueil GÉNÉRALE de l'application (portage de src/routes/index.tsx
 /// du web) — affichée avant la connexion. Distincte du tableau de bord
@@ -41,8 +40,6 @@ class LandingScreen extends StatelessWidget {
               const _StatsStrip(),
               const SizedBox(height: 8),
               const _StepsSection(),
-              const SizedBox(height: 8),
-              const _OfflineSection(),
               const SizedBox(height: 8),
               const _FeaturesSection(),
               const SizedBox(height: 8),
@@ -148,7 +145,7 @@ class _Hero extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             "Au Bénin, envoyer de l'argent d'un opérateur à un autre reste compliqué. FriPay relie tous vos "
-            'portefeuilles, calcule les frais les plus bas et fonctionne même quand la connexion lâche.',
+            'portefeuilles, calcule les frais les plus bas et sécurise chaque transfert par QR code.',
             style: GoogleFonts.manrope(fontSize: 14.5, color: AppColors.mutedForeground, height: 1.5),
           ),
           const SizedBox(height: 20),
@@ -163,17 +160,6 @@ class _Hero extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const OfflineScreen()),
-              ),
-              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: const Text('Comment ça marche sans réseau ?'),
-            ),
           ),
           const SizedBox(height: 22),
           Stack(
@@ -328,67 +314,6 @@ class _StepsSection extends StatelessWidget {
   }
 }
 
-class _OfflineSection extends StatelessWidget {
-  const _OfflineSection();
-
-  @override
-  Widget build(BuildContext context) {
-    const bullets = [
-      'Code court *880# pour envoyer sans smartphone',
-      'Confirmation SMS signée pour le destinataire',
-      'Synchronisation automatique au retour du data',
-    ];
-    return Container(
-      color: AppColors.primaryDeep,
-      padding: const EdgeInsets.fromLTRB(20, 30, 20, 34),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _FullImage(asset: 'assets/images/offline-ussd.jpg', ratio: 4 / 3),
-          const SizedBox(height: 22),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: AppColors.accent.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(999)),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.wifi_off_rounded, size: 14, color: AppColors.accent),
-                const SizedBox(width: 6),
-                Text('Mode hors ligne', style: GoogleFonts.manrope(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.accent)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text('Le réseau tombe, FriPay continue',
-              style: GoogleFonts.sora(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
-          const SizedBox(height: 10),
-          Text(
-            'Vos opérations sont signées localement et mises en file d\'attente. Dès qu\'un signal GSM minimal '
-            'est disponible, elles partent par USSD ou SMS chiffré. Aucun transfert perdu, aucun double débit.',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.78), fontSize: 13, height: 1.5),
-          ),
-          const SizedBox(height: 16),
-          ...bullets.map((t) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.only(top: 6, right: 10),
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
-                    ),
-                    Expanded(child: Text(t, style: TextStyle(color: Colors.white.withValues(alpha: 0.88), fontSize: 12.5))),
-                  ],
-                ),
-              )),
-        ],
-      ),
-    );
-  }
-}
-
 class _FeaturesSection extends StatelessWidget {
   const _FeaturesSection();
 
@@ -396,11 +321,11 @@ class _FeaturesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     const features = [
       (Icons.repeat_rounded, 'Transfert inter-opérateurs', "Un numéro suffit. FriPay détecte l'opérateur du destinataire et route la transaction."),
-      (Icons.wifi_off_rounded, 'Mode hors ligne', "File d'attente locale, code USSD *880# et confirmation SMS quand le data est absent."),
+      (Icons.qr_code_2_rounded, 'Envoi par QR code', "Générez un QR sécurisé : le destinataire le réclame quand il veut, même sans compte FriPay."),
       (Icons.qr_code_rounded, 'Paiement marchand', "Payez par QR, sans frais pour le commerçant sous 10 000 FCFA."),
       (Icons.receipt_long_rounded, 'Factures & forfaits', 'SBEE, SONEB, Canal+, recharges et forfaits data depuis le même écran.'),
       (Icons.groups_rounded, 'Tontines & groupes', 'Cagnottes familiales et tontines de quartier avec rappels automatiques.'),
-      (Icons.verified_user_rounded, 'Sécurité BCEAO', 'Chiffrement de bout en bout, PIN à 4 chiffres, biométrie et limites paramétrables.'),
+      (Icons.verified_user_rounded, 'Sécurité BCEAO', 'Chiffrement de bout en bout, PIN à 5 chiffres, biométrie et limites paramétrables.'),
     ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 30, 20, 0),
@@ -409,34 +334,38 @@ class _FeaturesSection extends StatelessWidget {
         children: [
           Text("Tout ce dont un compte a besoin", style: GoogleFonts.sora(fontSize: 21, fontWeight: FontWeight.w800)),
           const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 0.92,
-            children: features
-                .map((f) => Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(f.$1, color: AppColors.primary, size: 22),
-                            const SizedBox(height: 10),
-                            Text(f.$2, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                            const SizedBox(height: 5),
-                            Expanded(
-                              child: Text(f.$3,
-                                  style: const TextStyle(color: AppColors.mutedForeground, fontSize: 11, height: 1.35)),
-                            ),
-                          ],
+          LayoutBuilder(builder: (context, constraints) {
+            final double childAspectRatio = constraints.maxWidth < 360 ? 0.8 : 0.92;
+            return GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: childAspectRatio,
+              children: features
+                  .map((f) => Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(f.$1, color: AppColors.primary, size: 22),
+                              const SizedBox(height: 10),
+                              Text(f.$2, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
+                              const SizedBox(height: 5),
+                              Expanded(
+                                child: Text(f.$3,
+                                    style: const TextStyle(color: AppColors.mutedForeground, fontSize: 11, height: 1.35),
+                                    maxLines: 4, overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ))
-                .toList(),
-          ),
+                      ))
+                  .toList(),
+            );
+          }),
         ],
       ),
     );

@@ -205,3 +205,33 @@ class Ticket {
     required this.createdAt,
   });
 }
+
+/// Résultat de l'étape register() — pas encore de session, juste l'attente
+/// du code OTP envoyé par SMS.
+class RegisterResult {
+  final String userId;
+  final String phoneNumber;
+  /// Numéro FriPay attribué automatiquement par l'API (cahier §1) :
+  /// 10 chiffres, préfixe "30".
+  final String? fripayNumber;
+  final int otpExpiresIn;
+  /// Code OTP renvoyé UNIQUEMENT par l'API en environnement dev (tant
+  /// qu'aucun fournisseur SMS n'est branché — voir AuthController::register
+  /// côté fripay-users). Null en production dès qu'un vrai SMS part.
+  final String? devOtpCode;
+  /// Cahier §2 : code de confirmation envoyé par email en parallèle de
+  /// l'OTP SMS ci-dessus. Expiration plus longue (15 min).
+  final int emailVerificationExpiresIn;
+  /// Idem devOtpCode mais pour le code email — uniquement en dev.
+  final String? devEmailOtpCode;
+
+  RegisterResult({
+    required this.userId,
+    required this.phoneNumber,
+    required this.otpExpiresIn,
+    required this.emailVerificationExpiresIn,
+    this.fripayNumber,
+    this.devOtpCode,
+    this.devEmailOtpCode,
+  });
+}

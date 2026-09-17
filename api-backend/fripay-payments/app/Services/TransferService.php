@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Models\Corridor;
+use App\Models\Notification;
 use App\Models\PendingTransfer;
 use App\Models\Transaction;
 use App\Models\TransactionStatusHistory;
+use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -15,12 +17,14 @@ class TransferService
     private ConnectorRegistry $connectors;
     private OperatorDetectionService $operatorDetection;
     private WalletService $wallets;
+    private FripayNumberService $fripayNumbers;
 
     public function __construct()
     {
         $this->connectors         = app(ConnectorRegistry::class);
         $this->operatorDetection  = app(OperatorDetectionService::class);
         $this->wallets            = app(WalletService::class);
+        $this->fripayNumbers      = app(FripayNumberService::class);
     }
 
     /**
@@ -118,12 +122,22 @@ class TransferService
         $rail = $quote['rail'] ?? 'aggregator';
         $senderUserId = auth()->id();
 
+        // Le receveur est-il lui-même un utilisateur FriPay (numéro
+        // opérateur ou numéro FriPay déjà enregistré) ? Si oui, c'est un
+        // virement INTERNE wallet-à-wallet : il est réglé immédiatement,
+        // sans passer par un connecteur externe (MTN/Moov/Celtiis) — ces
+        // connecteurs ne sont d'ailleurs pas configurés (clés API vides),
+        // donc un transfert vers un compte FriPay ne partait jamais et
+        // restait bloqué indéfiniment en file d'attente.
+        $recipientUser = $this->resolveRecipientUser($recipientPhone);
+
         // Débit du wallet AVANT création de la transaction : si le solde est
         // insuffisant, on échoue immédiatement (RuntimeException INSUFFICIENT_FUNDS)
-        // sans rien enregistrer. Le débit et la création de la transaction sont
-        // atomiques (même transaction DB) pour éviter tout état incohérent.
+        // sans rien enregistrer. Le débit (et le crédit interne éventuel) et
+        // la création de la transaction sont atomiques (même transaction DB)
+        // pour éviter tout état incohérent.
         $transaction = \Illuminate\Support\Facades\DB::transaction(function () use (
-            $reference, $senderAccountId, $recipientPhone, $amount, $quote, $rail, $senderUserId
+            $reference, $senderAccountId, $recipientPhone, $amount, $quote, $rail, $senderUserId, $recipientUser
         ) {
             $transaction = Transaction::create([
                 'reference'             => $reference,
@@ -136,12 +150,13 @@ class TransferService
                 'currency'              => 'XOF',
                 'fee_amount'            => $quote['fee_amount'],
                 'total_debited'         => $quote['total_debited'],
-                'rail_used'             => $rail,
+                'rail_used'             => $recipientUser ? 'fripay_internal' : $rail,
                 'aggregator_provider'   => $quote['aggregator_provider'] ?? null,
                 'corridor_id'           => $quote['corridor_id'] ?? null,
                 'status'                => 'pending',
                 'client_type_snapshot'  => auth()->user()->client_type,
                 'initiated_at'          => now(),
+                'metadata'              => $recipientUser ? ['recipient_user_id' => $recipientUser->id] : null,
             ]);
 
             $this->wallets->debit(
@@ -152,14 +167,68 @@ class TransferService
                 "Transfert {$transaction->reference}"
             );
 
+            if ($recipientUser) {
+                // Virement interne réglé sur-le-champ : le receveur touche
+                // le montant net (les frais restent acquis à FriPay).
+                $this->wallets->credit(
+                    $recipientUser->id,
+                    (float) $amount,
+                    $transaction->id,
+                    'transfer_in',
+                    "Réception transfert {$transaction->reference}"
+                );
+
+                $transaction->update(['status' => 'completed', 'completed_at' => now()]);
+            }
+
             return $transaction;
         });
 
-        $this->recordHistory($transaction, null, 'pending', 'system', 'Transfert initié');
+        if ($recipientUser) {
+            $this->recordHistory($transaction, 'pending', 'completed', 'system', 'Transfert interne FriPay réglé immédiatement');
 
-        $this->dispatch($transaction, $recipientPhone);
+            $amountLabel = number_format($amount, 0, ',', ' ') . ' FCFA';
+            $this->notify($senderUserId, "Transfert envoyé", "Vous avez envoyé {$amountLabel}.", $transaction->id);
+            $this->notify($recipientUser->id, 'Argent reçu', "Vous avez reçu {$amountLabel} sur votre compte FriPay.", $transaction->id);
+        } else {
+            $this->recordHistory($transaction, null, 'pending', 'system', 'Transfert initié');
+            $this->dispatch($transaction, $recipientPhone);
+        }
 
         return $transaction;
+    }
+
+    /**
+     * Résout le destinataire d'un transfert vers un compte FriPay existant,
+     * par numéro d'opérateur (celui utilisé à l'inscription) ou par numéro
+     * FriPay (préfixe 30, cahier des charges §1). Retourne null si le
+     * numéro ne correspond à aucun compte FriPay — le transfert part alors
+     * en externe (MTN/Moov/Celtiis).
+     */
+    private function resolveRecipientUser(string $recipientPhone): ?User
+    {
+        if ($this->fripayNumbers->isFripayNumber($recipientPhone)) {
+            return User::where('fripay_number', $this->fripayNumbers->normalize($recipientPhone))->first();
+        }
+
+        return User::where('phone_number', $recipientPhone)->first();
+    }
+
+    /**
+     * Crée une notification in-app pour l'utilisateur donné (table partagée
+     * `notifications`, cf. App\Models\Notification dans fripay-common).
+     */
+    private function notify(string $userId, string $title, string $body, ?string $transactionId): void
+    {
+        Notification::create([
+            'user_id'                => $userId,
+            'type'                   => 'transaction_update',
+            'channel'                => 'in_app',
+            'title'                  => $title,
+            'body'                   => $body,
+            'related_transaction_id' => $transactionId,
+            'read'                   => false,
+        ]);
     }
 
     /**
@@ -402,6 +471,13 @@ class TransferService
         $this->refundWallet($transaction, 'transfer_refund_failed');
 
         $this->recordHistory($transaction, $previous, 'failed', 'system', $reason);
+
+        $this->notify(
+            $transaction->sender_user_id,
+            'Transfert échoué',
+            'Votre transfert de ' . number_format((float) $transaction->amount, 0, ',', ' ') . ' FCFA n\'a pas pu être délivré. Le montant a été remboursé sur votre compte.',
+            $transaction->id
+        );
     }
 
     /**

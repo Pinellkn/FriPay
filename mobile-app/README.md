@@ -618,3 +618,60 @@ restent fonctionnels.
 - Mode développeur Windows à activer pour un `flutter build apk` /
   `flutter run` complet avec plugins
 - Tests de build réels non exécutés dans cette session
+
+
+---
+
+## ✅ Checklist — "Etat fonctionnel de Fripay.md" (cahier des charges boss/client)
+
+> Suivi dédié aux nouvelles consignes du fichier `Etat fonctionnel de
+> Fripay.md` (racine du projet). Coché au fur et à mesure, côté mobile.
+
+### 1. Identité — numéro Fripay
+- [ ] ID unique 10 chiffres, préfixe `30` + suite aléatoire, généré à l'inscription
+- [ ] Affiché en permanence (accueil, portefeuille, partout où pertinent)
+- [ ] Lié directement au portefeuille de l'utilisateur
+
+### 2. Inscription
+- [ ] Email obligatoire + code de confirmation
+- [ ] Choix opérateur (MTN / Moov / Celtiis)
+- [ ] Indicatif +229 pré-rempli non modifiable, `01` obligatoire, préfixe
+      cohérent avec l'opérateur choisi (sinon erreur), format `229 01 XX XX XX XX`
+
+### 3. Connexion
+- [ ] Biométrie adaptée à la plateforme (Face ID sur iOS, empreinte sur Android
+      uniquement — jamais l'option de l'autre plateforme)
+- [ ] Méthodes alternatives par PIN (numéro Fripay + PIN, numéro opérateur + PIN)
+
+### 4. Réseaux et préfixes
+- [ ] Module dédié à la gestion centralisée des préfixes (Fripay/MTN/Moov/Celtiis)
+- [ ] Rechercher et intégrer les préfixes MTN/Moov/Celtiis à jour au Bénin
+
+### 5. Modifications d'interface
+- [x] « Envoyer » : fonction de scan retirée (2 boutons/tab → formulaire
+      "Numéro" seul ; `send_screen.dart` reconstruit, icône QR retirée de
+      l'Accueil qui l'ouvrait)
+- [ ] Mode hors ligne : à supprimer définitivement (actuellement encore présent)
+- [ ] « Dépôt » à renommer en « Recharge »
+- [ ] Ajout de contact via répertoire téléphonique natif (numéro 01 obligatoire)
+
+### 6. QR code (système d'envoi)
+- [ ] Code de validation généré par l'envoyeur puis QR (code + montant +
+      numéro receveur + numéro Fripay du receveur)
+- [ ] Retrait non immédiat, QR valable sans délai
+- [ ] Transfert du QR à un tiers (changement de destinataire)
+- [ ] Réception par scan **ou** upload (bouton "Uploader")
+- [ ] Parcours receveur sans compte Fripay (code de validation généré
+      automatiquement, page web dédiée, 3 tentatives max, remboursement
+      auto à l'envoyeur si échec)
+
+### 7. Suivi des transactions
+- [ ] Traçabilité complète de toute opération (transfert, QR, retrait, échec)
+
+### 8. Interfaces
+- [ ] Interface technique (suivi API, gestion préfixes)
+- [ ] Interface globale (contenu à définir avec le client)
+
+---
+*Session en cours : voir la case cochée ci-dessus pour le détail exact de
+ce qui vient d'être livré (retrait du scan dans Envoyer).*

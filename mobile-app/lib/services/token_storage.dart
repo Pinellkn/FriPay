@@ -13,6 +13,7 @@ class TokenStorage {
   static const _kRefreshToken = 'fripay_refresh_token';
   static const _kUserId = 'fripay_user_id';
   static const _kPhoneNumber = 'fripay_phone_number';
+  static const _kFripayNumber = 'fripay_number';
 
   Future<void> saveTokens({
     required String accessToken,
@@ -23,10 +24,17 @@ class TokenStorage {
     await prefs.setString(_kRefreshToken, refreshToken);
   }
 
-  Future<void> saveUser({required String userId, required String phoneNumber}) async {
+  Future<void> saveUser({
+    required String userId,
+    required String phoneNumber,
+    String? fripayNumber,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kUserId, userId);
     await prefs.setString(_kPhoneNumber, phoneNumber);
+    if (fripayNumber != null) {
+      await prefs.setString(_kFripayNumber, fripayNumber);
+    }
   }
 
   Future<String?> get accessToken async =>
@@ -40,6 +48,9 @@ class TokenStorage {
   Future<String?> get phoneNumber async =>
       (await SharedPreferences.getInstance()).getString(_kPhoneNumber);
 
+  Future<String?> get fripayNumber async =>
+      (await SharedPreferences.getInstance()).getString(_kFripayNumber);
+
   Future<bool> get hasSession async => (await accessToken) != null;
 
   Future<void> clear() async {
@@ -48,5 +59,6 @@ class TokenStorage {
     await prefs.remove(_kRefreshToken);
     await prefs.remove(_kUserId);
     await prefs.remove(_kPhoneNumber);
+    await prefs.remove(_kFripayNumber);
   }
 }

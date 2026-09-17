@@ -121,7 +121,7 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Modifier mon code PIN')),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -172,7 +172,7 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
                 const SizedBox(height: 18),
                 const Center(child: CircularProgressIndicator(strokeWidth: 2.4)),
               ],
-              const Spacer(),
+              const SizedBox(height: 40),
               const Text(
                 'Ne partagez jamais votre code PIN, même avec le support FriPay.',
                 textAlign: TextAlign.center,

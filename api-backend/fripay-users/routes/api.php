@@ -20,6 +20,9 @@ Route::prefix('v1')->group(function () {
     Route::middleware('throttle:auth')->group(function () {
         Route::post('/auth/register', [AuthController::class, 'register']);
         Route::post('/auth/verify-otp', [AuthController::class, 'verifyOtp']);
+        // Cahier §2 : confirmation du compte par code envoyé par email.
+        Route::post('/auth/verify-email', [AuthController::class, 'verifyEmail']);
+        Route::post('/auth/resend-email-verification', [AuthController::class, 'resendEmailVerification']);
         Route::post('/auth/login', [AuthController::class, 'login']);
         Route::post('/auth/refresh-token', [AuthController::class, 'refreshToken']);
     });

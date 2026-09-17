@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../services/network_prefixes.dart';
 import '../theme/app_colors.dart';
 import '../utils/formatters.dart';
 
@@ -11,12 +13,22 @@ import '../utils/formatters.dart';
 /// fripay-payments) : [balance] reste donc nullable. Quand il est null,
 /// la carte affiche le nombre de comptes mobile money liés plutôt qu'un
 /// montant inventé — même parti pris que l'écran Portefeuilles.
+///
+/// [fripayNumber] : numéro FriPay de l'utilisateur (cahier §1), affiché en
+/// permanence sur cette carte comme demandé — juste au-dessus du solde.
 class BalanceCard extends StatefulWidget {
   final int? balance;
   final int? linkedAccountsCount;
+  final String? fripayNumber;
   final VoidCallback? onAdd;
 
-  const BalanceCard({super.key, this.balance, this.linkedAccountsCount, this.onAdd});
+  const BalanceCard({
+    super.key,
+    this.balance,
+    this.linkedAccountsCount,
+    this.fripayNumber,
+    this.onAdd,
+  });
 
   @override
   State<BalanceCard> createState() => _BalanceCardState();
@@ -71,6 +83,38 @@ class _BalanceCardState extends State<BalanceCard> {
             ],
           ),
           const SizedBox(height: 10),
+          if (widget.fripayNumber != null) ...[
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: widget.fripayNumber!));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Numéro FriPay copié.'), duration: Duration(seconds: 1)),
+                );
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      'N° FriPay : ${NetworkPrefixes.format(widget.fripayNumber!)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.manrope(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.copy_rounded, size: 13, color: Colors.white.withValues(alpha: 0.78)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           if (widget.balance != null)
             Text(
               _hidden ? '••••• FCFA' : formatFCFA(widget.balance!),
@@ -105,29 +149,35 @@ class _BalanceCardState extends State<BalanceCard> {
           const SizedBox(height: 18),
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(color: AppColors.mtn, shape: BoxShape.circle),
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Réseau interopérable actif',
-                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
-                  ],
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(color: AppColors.mtn, shape: BoxShape.circle),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Réseau interopérable actif',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               if (widget.onAdd != null)
                 TextButton.icon(
                   onPressed: widget.onAdd,

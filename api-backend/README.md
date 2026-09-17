@@ -820,3 +820,63 @@ racine (doublons de processus PHP) déjà identifiée ci-dessus.
 **Reste à faire** :
 - [ ] Confirmer sur le téléphone (réouverture de l'app) que l'écran
   Plaintes charge bien maintenant.
+
+## Session — §6.e QR argent : contrôleur public "receveur externe"
+
+**Contexte** : le QR "argent" P2P (`OfflineQrController`), la migration
+`add_external_claim_columns_to_offline_qr_codes_table` et les helpers du
+modèle `OfflineQrCode` (`isExternal()`, `externalAttemptsRemaining()`,
+`isExternallyClaimable()`) existaient déjà. Il manquait le contrôleur
+public consommé par la page web (§6.e.4-8, receveur sans compte Fripay
+qui scanne avec un scanner externe).
+
+**Fait** : `App\Http\Controllers\Api\ExternalClaimController`
+(`fripay-payments/app/Http/Controllers/Api/`), **sans middleware auth**
+(protégé uniquement par `throttle:qr-external-claim`, déjà déclaré dans
+`AppServiceProvider`) :
+- `GET /api/v1/qr/external/{uuid}` (`lookup`) — infos publiques
+  (montant, devise, statut, tentatives restantes) pour que la page
+  web affiche le montant avant de demander le code.
+- `POST /api/v1/qr/external/{uuid}/claim` (`claim`) — code à 5
+  chiffres (comparaison `hash_equals`, temps constant) + numéro de
+  retrait (n'importe quel réseau, détecté/normalisé via
+  `OperatorDetectionService`). Verrouillage pessimiste
+  (`lockForUpdate`) + transaction DB.
+  - Code correct → QR passé à `redeemed`, `external_claimed_at` /
+    `settled_at` renseignés, numéro/réseau de retrait tracés
+    (`external_payout_number/network`). Le connecteur natif de
+    disbursement par opérateur n'est pas encore implémenté dans ce
+    dépôt (même écart que `TransferService`) — le règlement est donc
+    "prêt pour connecteur", pas encore un vrai virement opérateur.
+  - Code incorrect → `external_attempts` incrémenté ; au 3ᵉ échec
+    (`externalAttemptsRemaining() <= 0`) : QR passé à `cancelled`,
+    **vrai crédit wallet** de l'expéditeur via `WalletService::credit`
+    (les fonds avaient été débités/held dès la génération du QR),
+    événement `EVENT_CANCELLED_REFUNDED` tracé (§7, traçabilité —
+    c'est la seule "notification" à l'envoyeur pour l'instant, aucun
+    système de notification push/email n'existe encore dans ce dépôt).
+- Routes ajoutées dans `fripay-payments/routes/api.php`, section dédiée
+  juste après le bloc QR hors-ligne existant.
+
+**Vérifié** :
+- `php -l` propre sur `ExternalClaimController.php` et `routes/api.php`
+  (binaire WinGet PHP 8.5, pas celui de XAMPP — voir piège déjà noté
+  plus haut dans ce README).
+- Migration `2026_09_16_000001_add_external_claim_columns...` :
+  déjà `Ran` (batch 11) en base — confirmé via
+  `artisan migrate:status`.
+- `artisan route:clear` + `artisan route:list --path=qr/external` →
+  les 2 routes (`lookup`, `claim`) apparaissent correctement, sans
+  middleware `auth:sanctum`.
+
+**Reste à faire (§6, plus gros morceaux)** :
+- [ ] Page web publique elle-même (HTML/JS servie hors appli) qui
+  consomme ces deux endpoints — rien n'existe encore côté frontend
+  pour ce parcours.
+- [ ] Écrans Flutter : génération QR côté envoyeur avec `recipient_phone`
+  (déjà supporté par `OfflineQrController::generate`), scan + bouton
+  "Uploader" côté receveur, flux "modifier le destinataire" (§6.c,
+  transfert à un tiers — l'endpoint `transfer` existe déjà côté
+  backend).
+- [ ] §7 (historique/traçabilité complet côté app) et §8 (interfaces
+  technique/globale séparées) — pas attaqués.

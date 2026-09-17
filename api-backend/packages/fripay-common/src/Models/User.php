@@ -18,9 +18,11 @@ class User extends Authenticatable
 
     protected $fillable = [
         'phone_number',
+        'fripay_number',
         'first_name',
         'last_name',
         'email',
+        'email_verified_at',
         'pin_hash',
         'kyc_status',
         'client_type',
@@ -36,9 +38,10 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'status'        => UserStatus::class,
-            'kyc_status'    => KycStatus::class,
-            'last_login_at' => 'datetime',
+            'status'            => UserStatus::class,
+            'kyc_status'        => KycStatus::class,
+            'last_login_at'     => 'datetime',
+            'email_verified_at' => 'datetime',
         ];
     }
 

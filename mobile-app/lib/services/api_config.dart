@@ -22,7 +22,7 @@ class ApiConfig {
 
   /// IP locale (Wi-Fi) de la machine qui héberge le backend FriPay.
   /// Vérifier avec `ipconfig` si l'adresse change (ex. reconnexion Wi-Fi).
-  static const String kLanHost = '192.168.1.66';
+  static const String kLanHost = '192.168.1.68';
 
   static String get _host {
     if (Platform.isAndroid) {
@@ -35,4 +35,13 @@ class ApiConfig {
   static const int gatewayPort = 8080;
 
   static String get baseUrl => 'http://$_host:$gatewayPort/api/v1';
+
+  /// Racine du gateway, sans /api/v1 — utilisée par l'interface technique
+  /// (§8) pour appeler /__gateway/status, qui n'est pas une route métier.
+  static String get gatewayRootUrl => 'http://$_host:$gatewayPort';
+
+  /// Clé partagée avec le gateway (voir fripay-gateway/.env
+  /// FRIPAY_GATEWAY_DEBUG_KEY) pour consulter /__gateway/status depuis
+  /// l'app sans être sur l'IP whitelistée côté serveur.
+  static const String gatewayDebugKey = 'fripay-dev-2026-technique';
 }

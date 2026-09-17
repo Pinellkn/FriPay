@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -134,5 +137,30 @@ class BiometricService {
     if (await ensureOwnedBy(phone)) {
       await setPin(pin);
     }
+  }
+
+  // --- Personnalisation selon la plateforme (cahier §3) ---
+  //
+  // §3 impose explicitement : iPhone -> Face ID SEULEMENT, Android/autres
+  // -> empreinte SEULEMENT, jamais l'option de l'autre plateforme. On se
+  // base donc sur Platform.isIOS, PAS sur les BiometricType renvoyés par
+  // l'appareil (un Android avec reconnaissance faciale intégrée aurait
+  // sinon affiché "Face ID" à tort).
+
+  /// Retourne le nom de la biométrie adaptée à l'appareil (ex: "Face ID" ou
+  /// "empreinte").
+  Future<String> getLocalizedName() async {
+    return Platform.isIOS ? 'Face ID' : 'empreinte';
+  }
+
+  /// Retourne le libellé complet pour le bouton de connexion.
+  Future<String> getLoginButtonLabel() async {
+    final name = await getLocalizedName();
+    return 'Connexion par $name';
+  }
+
+  /// Retourne l'icône Material adaptée (empreinte ou reconnaissance faciale).
+  Future<IconData> getIcon() async {
+    return Platform.isIOS ? Icons.face_retouching_natural_rounded : Icons.fingerprint_rounded;
   }
 }

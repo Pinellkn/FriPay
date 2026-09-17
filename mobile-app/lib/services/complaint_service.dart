@@ -116,7 +116,7 @@ class ComplaintService {
       'reason': reason,
       'subject': subject,
       'description': description,
-      if (linkedTransactionId != null) 'linked_transaction_id': linkedTransactionId,
+      'linked_transaction_id': ?linkedTransactionId,
     });
     return ApiComplaint.fromJson(res as Map<String, dynamic>);
   }

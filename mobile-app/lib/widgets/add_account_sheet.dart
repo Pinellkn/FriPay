@@ -76,61 +76,63 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 22,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 42,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 18),
-              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(4)),
+    return SingleChildScrollView(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 22,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(4)),
+              ),
             ),
-          ),
-          Row(
-            children: [
-              const Icon(Icons.add_card_rounded, color: AppColors.primary, size: 20),
-              const SizedBox(width: 8),
-              Text('Lier un compte mobile money', style: GoogleFonts.sora(fontSize: 17, fontWeight: FontWeight.w700)),
+            Row(
+              children: [
+                const Icon(Icons.add_card_rounded, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text('Lier un compte mobile money', style: GoogleFonts.sora(fontSize: 17, fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              "L'opérateur (MTN, Moov ou Celtiis) est détecté automatiquement "
+              'à partir du numéro — aucune sélection nécessaire.',
+              style: TextStyle(color: AppColors.mutedForeground, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            const Text('Numéro à lier', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _phoneCtrl,
+              autofocus: true,
+              enabled: !_saving,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9 ]'))],
+              decoration: const InputDecoration(hintText: '01 97 00 00 00'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!, style: const TextStyle(color: AppColors.destructive, fontSize: 12.5, fontWeight: FontWeight.w600)),
             ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            "L'opérateur (MTN, Moov ou Celtiis) est détecté automatiquement "
-            'à partir du numéro — aucune sélection nécessaire.',
-            style: TextStyle(color: AppColors.mutedForeground, fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 18),
-          const Text('Numéro à lier', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _phoneCtrl,
-            autofocus: true,
-            enabled: !_saving,
-            keyboardType: TextInputType.phone,
-            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]'))],
-            decoration: const InputDecoration(hintText: '+229 01 XX XX XX XX'),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(_error!, style: const TextStyle(color: AppColors.destructive, fontSize: 12.5, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 22),
+            ElevatedButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Lier ce compte'),
+            ),
           ],
-          const SizedBox(height: 22),
-          ElevatedButton(
-            onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Text('Lier ce compte'),
-          ),
-        ],
+        ),
       ),
     );
   }

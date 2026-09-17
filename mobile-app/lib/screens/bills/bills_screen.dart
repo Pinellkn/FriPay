@@ -92,14 +92,16 @@ class _BillsScreenState extends State<BillsScreen> {
               else if (_billersError != null)
                 Text(_billersError!, style: const TextStyle(color: AppColors.destructive, fontSize: 12.5))
               else
-                GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 0.92,
-                  children: _billers.map((b) {
+                LayoutBuilder(builder: (context, constraints) {
+                  final double childAspectRatio = constraints.maxWidth < 360 ? 0.8 : 0.92;
+                  return GridView.count(
+                    crossAxisCount: 3,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: childAspectRatio,
+                    children: _billers.map((b) {
                     final selected = b.id == _billerId;
                     return InkWell(
                       onTap: () => setState(() => _billerId = b.id),
@@ -123,7 +125,8 @@ class _BillsScreenState extends State<BillsScreen> {
                       ),
                     );
                   }).toList(),
-                ),
+                );
+              }),
               const SizedBox(height: 20),
               if (_billerId != null)
                 Card(

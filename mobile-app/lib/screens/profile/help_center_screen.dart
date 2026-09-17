@@ -13,9 +13,10 @@ class HelpCenterScreen extends StatelessWidget {
         'Non. Vous gardez vos numéros MTN, Moov ou Celtiis. FriPay les relie simplement à un compte unique.'),
     ('Combien coûte un transfert inter-opérateurs ?',
         '0,9 % du montant, avec un minimum de 25 FCFA. Entre deux comptes FriPay, c\'est 0,5 %.'),
-    ('Comment fonctionne le mode hors ligne ?',
-        "L'opération est signée sur votre téléphone puis transmise par USSD (*880#) ou SMS chiffré dès "
-            "qu'un signal GSM est disponible. La synchronisation évite tout double débit."),
+    ("Comment fonctionne l'envoi par QR code ?",
+        "L'envoyeur génère un code de validation puis un QR contenant le montant et le numéro du "
+            "destinataire. Le QR reste valable tant qu'il n'a pas été réclamé : le destinataire retire "
+            "l'argent quand il le souhaite, par scan ou en téléversant l'image du QR."),
     ('Que se passe-t-il si je perds mon téléphone ?',
         'Composez *880*0*0# ou appelez le 01 40 00 00 00 pour suspendre le compte. Vos fonds restent '
             'cantonnés chez la banque partenaire.'),

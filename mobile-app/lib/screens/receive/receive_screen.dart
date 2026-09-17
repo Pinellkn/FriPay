@@ -10,6 +10,7 @@ import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/add_contact_sheet.dart';
 import '../../widgets/section_header.dart';
+import 'receive_qr_screen.dart';
 
 /// Portage de src/routes/app.recevoir.tsx — onglet "Mon QR" branché sur
 /// POST /qr/mpm/generate (QR statique : le payeur saisit le montant, comme
@@ -102,7 +103,18 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Recevoir')),
+      appBar: AppBar(
+        title: const Text('Recevoir'),
+        actions: [
+          IconButton(
+            tooltip: 'Recevoir un QR',
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ReceiveQrScreen()),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
@@ -127,12 +139,9 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
                 ),
               ),
               const SizedBox(height: 20),
-              SizedBox(
-                height: _tab.index == 0 ? 720 : 380,
-                child: TabBarView(
-                  controller: _tab,
-                  children: [_qrTab(), _requestTab()],
-                ),
+              AnimatedBuilder(
+                animation: _tab,
+                builder: (context, _) => _tab.index == 0 ? _qrTab() : _requestTab(),
               ),
             ],
           ),
@@ -157,24 +166,27 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: AppColors.destructive, fontSize: 12.5, fontWeight: FontWeight.w600)),
                     ),
-                  Container(
-                    width: 232,
-                    height: 232,
-                    padding: const EdgeInsets.all(16),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
-                    child: _merchantQr == null
-                        ? (_regenerating
-                            ? const CircularProgressIndicator()
-                            : const Icon(Icons.qr_code_2_rounded, size: 48, color: AppColors.mutedForeground))
-                        : QrImageView(
-                            data: _merchantQr!.qrCode,
-                            size: 200,
-                            eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: AppColors.primaryDeep),
-                            dataModuleStyle: const QrDataModuleStyle(
-                                dataModuleShape: QrDataModuleShape.square, color: AppColors.primaryDeep),
-                          ),
-                  ),
+                  LayoutBuilder(builder: (context, constraints) {
+                    final qrSize = constraints.maxWidth * 0.75;
+                    return Container(
+                      width: qrSize + 32,
+                      height: qrSize + 32,
+                      padding: const EdgeInsets.all(16),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
+                      child: _merchantQr == null
+                          ? (_regenerating
+                              ? const CircularProgressIndicator()
+                              : const Icon(Icons.qr_code_2_rounded, size: 48, color: AppColors.mutedForeground))
+                          : QrImageView(
+                              data: _merchantQr!.qrCode,
+                              size: qrSize,
+                              eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: AppColors.primaryDeep),
+                              dataModuleStyle: const QrDataModuleStyle(
+                                  dataModuleShape: QrDataModuleShape.square, color: AppColors.primaryDeep),
+                            ),
+                    );
+                  }),
                   const SizedBox(height: 16),
                   Text(_displayName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                   if (_phone.isNotEmpty)
@@ -253,7 +265,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
           children: [
             const Text('Numéro du payeur', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
             const SizedBox(height: 8),
-            TextField(controller: _whoCtrl, decoration: const InputDecoration(hintText: '+229 95 00 00 00')),
+            TextField(controller: _whoCtrl, decoration: const InputDecoration(hintText: '01 97 00 00 00')),
             const SizedBox(height: 8),
             if (_contacts.isNotEmpty)
               Wrap(
@@ -303,7 +315,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
             ),
             const SizedBox(height: 10),
             const Text(
-              'Le payeur reçoit un SMS avec un lien court ; sans data, il valide par USSD *880*9#.',
+              'Le payeur reçoit un SMS avec un lien court pour régler la demande depuis FriPay.',
               style: TextStyle(color: AppColors.mutedForeground, fontSize: 11.5),
             ),
           ],

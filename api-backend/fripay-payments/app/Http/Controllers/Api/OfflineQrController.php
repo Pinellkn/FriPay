@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\OfflineQrCode;
 use App\Models\OfflineQrEvent;
+use App\Models\PendingTransfer;
+use App\Models\User;
 use App\Services\QrCryptoService;
+use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,8 +23,33 @@ use Illuminate\Support\Str;
 class OfflineQrController extends Controller
 {
     public function __construct(
-        private QrCryptoService $crypto
+        private QrCryptoService $crypto,
+        private WalletService $wallets
     ) {}
+
+    /**
+     * Retrouve un utilisateur par numéro Fripay (30 + 8 chiffres) ou par
+     * numéro opérateur, quel que soit celui des deux fourni.
+     */
+    private function findUserByAnyNumber(string $value): ?User
+    {
+        $digits = preg_replace('/\D/', '', $value);
+
+        if (preg_match('/^30\d{8}$/', $digits)) {
+            return User::where('fripay_number', $digits)->first();
+        }
+
+        return User::where('phone_number', $value)->first()
+            ?? User::where('phone_number', $digits)->first();
+    }
+
+    /**
+     * Code de validation à 5 chiffres pour le parcours receveur externe.
+     */
+    private function generateExternalCode(): string
+    {
+        return str_pad((string) random_int(0, 99999), 5, '0', STR_PAD_LEFT);
+    }
 
     /**
      * Générer un QR Code signé.
@@ -42,52 +70,98 @@ class OfflineQrController extends Controller
         $validated = $request->validate([
             'amount'          => 'required|integer|min:100|max:500000',
             'currency'        => 'string|max:3',
-            'expires_minutes' => 'integer|min:5|max:60',
+            // §6.b : pas de délai imposé — expiration facultative désormais.
+            'expires_minutes' => 'nullable|integer|min:5|max:43200',
             'recipient_hint'  => 'nullable|string|max:100',
+            // §6.a/e : numéro du receveur, utilisé pour détecter son compte.
+            'recipient_phone' => 'nullable|string|max:20',
         ]);
 
         $userId = $request->user()->getKey();
         $amount = $validated['amount'];
         $currency = $validated['currency'] ?? 'XOF';
-        $expiresMinutes = $validated['expires_minutes'] ?? 60;
+        $expiresAt = isset($validated['expires_minutes'])
+            ? now()->addMinutes($validated['expires_minutes'])
+            : null;
+
+        // Détection du compte du receveur (§6.e étape 1)
+        $recipientPhone = $validated['recipient_phone'] ?? null;
+        $recipientUser = $recipientPhone ? $this->findUserByAnyNumber($recipientPhone) : null;
+        $hasRecipientAccount = $recipientPhone ? ($recipientUser !== null) : null;
+        $externalCode = ($recipientPhone && !$hasRecipientAccount) ? $this->generateExternalCode() : null;
 
         $keyPair = $this->crypto->generateKeyPair();
-        $expiresAt = now()->addMinutes($expiresMinutes);
 
         $signed = $this->crypto->createSignedPayload(
             $amount,
             $currency,
             $keyPair['secret_key'],
             $keyPair['public_key'],
-            $validated['recipient_hint'] ?? null,
-            $expiresAt->toIso8601String()
+            $validated['recipient_hint'] ?? $recipientPhone,
+            $expiresAt?->toIso8601String()
         );
 
         $idempotencyKey = Str::random(64);
 
         $qrCode = DB::transaction(function () use (
-            $userId, $amount, $currency, $keyPair, $signed,
-            $expiresAt, $idempotencyKey
+            $userId, $amount, $currency, $keyPair, $signed, $expiresAt,
+            $idempotencyKey, $recipientPhone, $recipientUser, $hasRecipientAccount, $externalCode
         ) {
+            // Réservation réelle des fonds — l'argent quitte le wallet de
+            // l'envoyeur dès la génération (§6 : le QR "contient" l'argent).
+            $this->wallets->debit(
+                $userId,
+                (float) $amount,
+                null,
+                'qr_transfer_hold',
+                "Réservation QR argent"
+            );
+
             $qr = OfflineQrCode::create([
-                'uuid'              => $signed['uuid'],
-                'sender_user_id'    => $userId,
-                'amount'            => $amount,
-                'currency'          => $currency,
-                'sender_public_key' => $this->crypto->publicKeyToBase64($keyPair['public_key']),
-                'signature'         => $signed['signature'],
-                'qr_payload'        => $signed['qr_content'],
-                'status'            => OfflineQrCode::STATUS_ACTIVE,
-                'expires_at'        => $expiresAt,
-                'idempotency_key'   => $idempotencyKey,
+                'uuid'                      => $signed['uuid'],
+                'sender_user_id'            => $userId,
+                'amount'                    => $amount,
+                'currency'                  => $currency,
+                'sender_public_key'         => $this->crypto->publicKeyToBase64($keyPair['public_key']),
+                'signature'                 => $signed['signature'],
+                'qr_payload'                => $signed['qr_content'],
+                'status'                    => OfflineQrCode::STATUS_ACTIVE,
+                'expires_at'                => $expiresAt,
+                'idempotency_key'           => $idempotencyKey,
+                'recipient_phone'           => $recipientPhone,
+                'has_recipient_account'     => $hasRecipientAccount,
+                'recipient_user_id'         => $hasRecipientAccount ? $recipientUser->id : null,
+                'external_validation_code'  => $externalCode,
+                'held_at'                   => now(),
+            ]);
+
+            OfflineQrEvent::create([
+                'offline_qr_code_id' => $qr->id,
+                'event_type'         => OfflineQrEvent::EVENT_HELD,
+                'actor_user_id'      => $userId,
+                'metadata'           => ['amount' => $amount, 'currency' => $currency],
             ]);
 
             OfflineQrEvent::create([
                 'offline_qr_code_id' => $qr->id,
                 'event_type'         => OfflineQrEvent::EVENT_GENERATED,
                 'actor_user_id'      => $userId,
-                'metadata'           => ['amount' => $amount, 'currency' => $currency],
+                'metadata'           => [
+                    'amount'                 => $amount,
+                    'currency'               => $currency,
+                    'recipient_phone'        => $recipientPhone,
+                    'has_recipient_account'  => $hasRecipientAccount,
+                ],
             ]);
+
+            if ($externalCode !== null) {
+                OfflineQrEvent::create([
+                    'offline_qr_code_id' => $qr->id,
+                    'event_type'         => OfflineQrEvent::EVENT_EXTERNAL_CODE_ISSUED,
+                    'actor_user_id'      => $userId,
+                    'metadata'           => ['recipient_phone' => $recipientPhone],
+                ]);
+            }
 
             return $qr;
         });
@@ -101,12 +175,16 @@ class OfflineQrController extends Controller
         ]);
 
         return response()->json([
-            'qr_code'    => $signed['qr_content'],
-            'uuid'       => $signed['uuid'],
-            'amount'     => $amount,
-            'currency'   => $currency,
-            'expires_at' => $expiresAt->toIso8601String(),
-            'status'     => 'active',
+            'qr_code'                => $signed['qr_content'],
+            'uuid'                   => $signed['uuid'],
+            'amount'                 => $amount,
+            'currency'               => $currency,
+            'expires_at'             => $expiresAt?->toIso8601String(),
+            'status'                 => 'active',
+            'has_recipient_account'  => $hasRecipientAccount,
+            // À transmettre par l'envoyeur hors appli (WhatsApp, etc.) si
+            // le receveur n'a pas de compte Fripay.
+            'external_validation_code' => $externalCode,
         ], 201);
     }
 
@@ -246,18 +324,12 @@ class OfflineQrController extends Controller
             ]);
 
             return match ($qrCode['error']) {
-                'NOT_FOUND'     => response()->json(['error' => 'QR_NOT_FOUND', 'message' => 'QR Code inconnu'], 404),
-                'NOT_ACTIVE'    => response()->json(['error' => 'QR_NOT_ACTIVE', 'message' => 'QR Code non actif'], 422),
-                'MERCHANT_QR'   => response()->json(['error' => 'MERCHANT_QR', 'message' => 'Ce QR est un QR marchand'], 422),
-                'SELF_TRANSFER' => response()->json([
-                    'error'   => 'SELF_TRANSFER',
-                    'message' => 'Vous ne pouvez pas recevoir votre propre QR Code',
-                ], 422),
-                'PUBKEY_MISMATCH' => response()->json([
-                    'error'   => 'PUBKEY_MISMATCH',
-                    'message' => 'La clé publique du QR ne correspond pas à celle enregistrée',
-                ], 422),
-                default => response()->json(['error' => 'UNKNOWN'], 500),
+                'NOT_FOUND'     => $this->errorResponse('QR_NOT_FOUND', 'QR Code introuvable', 404, 'Ce QR Code est inconnu ou a été supprimé.', $request),
+                'NOT_ACTIVE'    => $this->errorResponse('QR_NOT_ACTIVE', 'QR Code non actif', 422, "Ce QR Code n'est plus actif (déjà réclamé, expiré ou annulé).", $request),
+                'MERCHANT_QR'   => $this->errorResponse('MERCHANT_QR', 'QR marchand', 422, "Ce QR est un QR marchand, pas un QR d'envoi d'argent.", $request),
+                'SELF_TRANSFER' => $this->errorResponse('SELF_TRANSFER', 'QR personnel', 422, 'Vous ne pouvez pas recevoir votre propre QR Code.', $request),
+                'PUBKEY_MISMATCH' => $this->errorResponse('PUBKEY_MISMATCH', 'QR invalide', 422, 'La clé publique du QR ne correspond pas à celle enregistrée.', $request),
+                default => $this->errorResponse('UNKNOWN', 'Erreur', 500, 'Une erreur inattendue est survenue.', $request),
             };
         }
 
@@ -322,8 +394,20 @@ class OfflineQrController extends Controller
             $qrCode->update([
                 'status'            => OfflineQrCode::STATUS_REDEEMED,
                 'redeemed_at'       => now(),
+                'settled_at'        => now(),
                 'recipient_user_id' => $userId,
             ]);
+
+            // §7 — l'encaissement doit réellement créditer le wallet du
+            // receveur (bug corrigé : le statut changeait mais l'argent
+            // débité à la génération n'était jamais crédité côté receveur).
+            $this->wallets->credit(
+                $userId,
+                (float) $qrCode->amount,
+                null,
+                'qr_redeemed',
+                'Encaissement QR argent — de ' . $qrCode->sender_user_id
+            );
 
             OfflineQrEvent::create([
                 'offline_qr_code_id' => $qrCode->id,
@@ -346,17 +430,11 @@ class OfflineQrController extends Controller
             ]);
 
             return match ($qrCode['error']) {
-                'NOT_FOUND'      => response()->json(['error' => 'QR_NOT_FOUND'], 404),
-                'NOT_REDEEMABLE' => response()->json([
-                    'error'   => 'QR_NOT_REDEEMABLE',
-                    'message' => 'Ce QR Code ne peut plus être encaissé',
-                ], 422),
-                'MERCHANT_QR'    => response()->json(['error' => 'MERCHANT_QR', 'message' => 'Ce QR est un QR marchand'], 422),
-                'NOT_OWNER'      => response()->json([
-                    'error'   => 'NOT_OWNER',
-                    'message' => 'Ce QR Code ne vous appartient pas',
-                ], 403),
-                default => response()->json(['error' => 'UNKNOWN'], 500),
+                'NOT_FOUND'      => $this->errorResponse('QR_NOT_FOUND', 'QR Code introuvable', 404, 'Ce QR Code est inconnu ou a été supprimé.', $request),
+                'NOT_REDEEMABLE' => $this->errorResponse('QR_NOT_REDEEMABLE', 'QR non encaissable', 422, 'Ce QR Code ne peut plus être encaissé.', $request),
+                'MERCHANT_QR'    => $this->errorResponse('MERCHANT_QR', 'QR marchand', 422, "Ce QR est un QR marchand, pas un QR d'envoi d'argent.", $request),
+                'NOT_OWNER'      => $this->errorResponse('NOT_OWNER', 'QR non autorisé', 403, "Ce QR Code ne vous appartient pas.", $request),
+                default => $this->errorResponse('UNKNOWN', 'Erreur', 500, 'Une erreur inattendue est survenue.', $request),
             };
         }
 
@@ -446,12 +524,12 @@ class OfflineQrController extends Controller
 
         if (isset($qrCode['error'])) {
             return match ($qrCode['error']) {
-                'NOT_FOUND'           => response()->json(['error' => 'QR_NOT_FOUND'], 404),
-                'NOT_TRANSFERABLE'    => response()->json(['error' => 'QR_NOT_TRANSFERABLE'], 422),
-                'MERCHANT_QR'         => response()->json(['error' => 'MERCHANT_QR', 'message' => 'Ce QR est un QR marchand'], 422),
-                'NOT_OWNER'           => response()->json(['error' => 'NOT_OWNER'], 403),
-                'RECIPIENT_NOT_FOUND' => response()->json(['error' => 'RECIPIENT_NOT_FOUND'], 404),
-                default => response()->json(['error' => 'UNKNOWN'], 500),
+                'NOT_FOUND'           => $this->errorResponse('QR_NOT_FOUND', 'QR Code introuvable', 404, 'Ce QR Code est inconnu ou a été supprimé.', $request),
+                'NOT_TRANSFERABLE'    => $this->errorResponse('QR_NOT_TRANSFERABLE', 'QR non transférable', 422, 'Ce QR Code ne peut plus être transféré.', $request),
+                'MERCHANT_QR'         => $this->errorResponse('MERCHANT_QR', 'QR marchand', 422, "Ce QR est un QR marchand, pas un QR d'envoi d'argent.", $request),
+                'NOT_OWNER'           => $this->errorResponse('NOT_OWNER', 'QR non autorisé', 403, "Ce QR Code ne vous appartient pas.", $request),
+                'RECIPIENT_NOT_FOUND' => $this->errorResponse('RECIPIENT_NOT_FOUND', 'Destinataire introuvable', 404, "Aucun compte FriPay ne correspond à ce numéro.", $request),
+                default => $this->errorResponse('UNKNOWN', 'Erreur', 500, 'Une erreur inattendue est survenue.', $request),
             };
         }
 
@@ -498,7 +576,21 @@ class OfflineQrController extends Controller
                 return ['error' => 'NOT_REVOCABLE'];
             }
 
-            $qrCode->update(['status' => OfflineQrCode::STATUS_REVOKED]);
+            $qrCode->update([
+                'status'      => OfflineQrCode::STATUS_REVOKED,
+                'refunded_at' => now(),
+            ]);
+
+            // §7 — même bug que redeem() : la révocation changeait le statut
+            // et promettait un "refund" dans les métadonnées de l'event,
+            // sans jamais recréditer l'expéditeur. Corrigé.
+            $this->wallets->credit(
+                $userId,
+                (float) $qrCode->amount,
+                null,
+                'qr_revoked_refund',
+                'Remboursement QR argent — annulation par expéditeur'
+            );
 
             OfflineQrEvent::create([
                 'offline_qr_code_id' => $qrCode->id,
@@ -512,10 +604,10 @@ class OfflineQrController extends Controller
 
         if (isset($qrCode['error'])) {
             return match ($qrCode['error']) {
-                'NOT_FOUND'      => response()->json(['error' => 'QR_NOT_FOUND'], 404),
-                'NOT_SENDER'     => response()->json(['error' => 'NOT_SENDER'], 403),
-                'NOT_REVOCABLE'  => response()->json(['error' => 'QR_NOT_REVOCABLE'], 422),
-                default => response()->json(['error' => 'UNKNOWN'], 500),
+                'NOT_FOUND'      => $this->errorResponse('QR_NOT_FOUND', 'QR Code introuvable', 404, 'Ce QR Code est inconnu ou a été supprimé.', $request),
+                'NOT_SENDER'     => $this->errorResponse('NOT_SENDER', 'QR non autorisé', 403, "Seul l'expéditeur peut annuler ce QR Code.", $request),
+                'NOT_REVOCABLE'  => $this->errorResponse('QR_NOT_REVOCABLE', 'QR non annulable', 422, 'Ce QR Code a déjà été encaissé ou annulé.', $request),
+                default => $this->errorResponse('UNKNOWN', 'Erreur', 500, 'Une erreur inattendue est survenue.', $request),
             };
         }
 
@@ -585,7 +677,7 @@ class OfflineQrController extends Controller
             'qr_type'     => $qrCode->qr_type,
             'description' => $qrCode->description,
             'created_at'  => $qrCode->created_at->toIso8601String(),
-            'expires_at'  => $qrCode->expires_at->toIso8601String(),
+            'expires_at'  => $qrCode->expires_at?->toIso8601String(),
             'received_at' => $qrCode->received_at?->toIso8601String(),
             'redeemed_at' => $qrCode->redeemed_at?->toIso8601String(),
             'events'      => $qrCode->events->map(fn($e) => [

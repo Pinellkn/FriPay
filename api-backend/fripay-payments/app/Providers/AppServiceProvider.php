@@ -57,6 +57,14 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
+        // §6.e — parcours receveur externe (page web publique, pas de compte
+        // Fripay) : le code à 5 chiffres est déjà protégé par le compteur
+        // interne (3 tentatives / QR), mais on limite aussi par IP pour
+        // empêcher l'énumération d'UUID à la volée.
+        RateLimiter::for('qr-external-claim', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
+
         // Webhook endpoints: 100 req/min per IP to prevent abuse
         RateLimiter::for('webhook', function (Request $request) {
             return Limit::perMinute(100)->by($request->ip());

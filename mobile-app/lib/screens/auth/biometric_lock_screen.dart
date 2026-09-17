@@ -22,13 +22,26 @@ class BiometricLockScreen extends StatefulWidget {
 class _BiometricLockScreenState extends State<BiometricLockScreen> {
   bool _checking = false;
   bool _failed = false;
+  String _biometricName = 'empreinte';
+  IconData _biometricIcon = Icons.fingerprint_rounded;
 
   @override
   void initState() {
     super.initState();
+    _loadBiometricType();
     // Laisse l'écran se dessiner avant de déclencher le prompt natif,
     // sinon il peut apparaître avant que l'UI ne soit prête.
     WidgetsBinding.instance.addPostFrameCallback((_) => _attempt());
+  }
+
+  Future<void> _loadBiometricType() async {
+    final name = await BiometricService.instance.getLocalizedName();
+    final icon = await BiometricService.instance.getIcon();
+    if (!mounted) return;
+    setState(() {
+      _biometricName = name;
+      _biometricIcon = icon;
+    });
   }
 
   Future<void> _attempt() async {
@@ -37,7 +50,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
       _failed = false;
     });
     final ok = await BiometricService.instance.authenticate(
-      reason: 'Déverrouillez FriPay avec votre empreinte',
+      reason: 'Déverrouillez FriPay avec votre $_biometricName',
     );
     if (!mounted) return;
     if (ok) {
@@ -61,6 +74,9 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final iconSize = size.height * 0.12; // 12% de la hauteur de l'écran
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppColors.gradientEmerald),
@@ -70,14 +86,14 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const FripayLogo(inverted: true, size: 60),
-                const SizedBox(height: 30),
+                FripayLogo(inverted: true, size: size.height * 0.08),
+                SizedBox(height: size.height * 0.04),
                 Icon(
-                  Icons.fingerprint_rounded,
-                  size: 84,
+                  _biometricIcon,
+                  size: iconSize,
                   color: Colors.white.withValues(alpha: _checking ? 1 : 0.85),
                 ),
-                const SizedBox(height: 18),
+                SizedBox(height: size.height * 0.02),
                 Text(
                   _checking ? 'Vérification en cours…' : 'Déverrouillez FriPay',
                   textAlign: TextAlign.center,

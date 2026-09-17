@@ -11,13 +11,14 @@ import '../../widgets/status_badge.dart';
 import '../../services/account_service.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
+import '../../services/network_prefixes.dart';
 import '../../services/transfer_service.dart';
 import '../../services/wallet_service.dart';
+import '../../services/token_storage.dart';
 import '../../widgets/fripay_refresh.dart';
 import '../bills/bills_screen.dart';
 import '../complaints/complaints_screen.dart';
 import '../history/history_screen.dart';
-import '../offline/offline_screen.dart';
 import '../profile/notifications_screen.dart';
 import '../receive/receive_screen.dart';
 import '../recharge/recharge_screen.dart';
@@ -39,6 +40,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String _displayName = '…';
   String _initials = '·';
+  String? _fripayNumber;
 
   List<LinkedAccount>? _accounts;
   List<Transaction>? _recent;
@@ -48,7 +50,21 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadFromCache();
     _load();
+  }
+
+  Future<void> _loadFromCache() async {
+    final fripay = await TokenStorage.instance.fripayNumber;
+    final phone = await TokenStorage.instance.phoneNumber;
+    if (!mounted) return;
+    setState(() {
+      _fripayNumber = fripay;
+      if (_displayName == '…' && phone != null) {
+        _displayName = NetworkPrefixes.format(phone);
+        _initials = phone.substring(phone.length - 2);
+      }
+    });
   }
 
   Future<void> _load() async {
@@ -75,12 +91,14 @@ class _HomeScreenState extends State<HomeScreen> {
       final last = (me['last_name'] as String?)?.trim() ?? '';
       final full = [first, last].where((s) => s.isNotEmpty).join(' ');
       final phone = (me['phone_number'] as String?) ?? '';
+      final fripayNumber = (me['fripay_number'] as String?)?.trim();
       if (!mounted) return;
       setState(() {
-        _displayName = full.isNotEmpty ? full : (phone.isNotEmpty ? phone : '…');
+        _displayName = full.isNotEmpty ? full : (phone.isNotEmpty ? NetworkPrefixes.format(phone) : '…');
         _initials = full.isNotEmpty
             ? full.trim().split(RegExp(r'\s+')).take(2).map((s) => s[0].toUpperCase()).join()
             : (phone.isNotEmpty ? phone.substring(phone.length - 2) : '·');
+        _fripayNumber = (fripayNumber != null && fripayNumber.isNotEmpty) ? fripayNumber : null;
       });
     } on ApiException catch (_) {
       // Session expirée ou réseau indisponible : on garde le placeholder.
@@ -154,18 +172,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 InkWell(
-                  onTap: () => _push(context, const SendScreen(startOnQrTab: true)),
-                  customBorder: const CircleBorder(),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(border: Border.all(color: AppColors.border), shape: BoxShape.circle),
-                    child: const Icon(Icons.qr_code_scanner_rounded, size: 20, color: AppColors.mutedForeground),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                InkWell(
                   onTap: () => _push(context, const NotificationsScreen()),
                   customBorder: const CircleBorder(),
                   child: Container(
@@ -187,6 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
             BalanceCard(
               balance: _wallet?.balance,
               linkedAccountsCount: _accounts?.length,
+              fripayNumber: _fripayNumber,
               onAdd: () => _push(context, const RechargeScreen()),
             ),
             const SizedBox(height: 22),
@@ -197,10 +204,11 @@ class _HomeScreenState extends State<HomeScreen> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               mainAxisSpacing: 14,
+              childAspectRatio: 0.85,
               children: [
                 QuickActionButton(icon: Icons.compare_arrows_rounded, label: 'Envoyer', onTap: () => _push(context, const SendScreen())),
                 QuickActionButton(icon: Icons.qr_code_rounded, label: 'Recevoir', onTap: () => _push(context, const ReceiveScreen())),
-                QuickActionButton(icon: Icons.add_card_rounded, label: 'Dépôt', onTap: () => _push(context, const RechargeScreen())),
+                QuickActionButton(icon: Icons.add_card_rounded, label: 'Recharge', onTap: () => _push(context, const RechargeScreen())),
                 QuickActionButton(icon: Icons.receipt_long_rounded, label: 'Factures', onTap: () => _push(context, const BillsScreen())),
                 QuickActionButton(
                   icon: Icons.account_balance_wallet_rounded,
@@ -214,7 +222,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppColors.accent,
                   onTap: () => _push(context, const HistoryScreen()),
                 ),
-                QuickActionButton(icon: Icons.wifi_off_rounded, label: 'Hors ligne', color: AppColors.moov, onTap: () => _push(context, const OfflineScreen())),
                 QuickActionButton(
                   icon: Icons.report_problem_rounded,
                   label: 'Plaintes',

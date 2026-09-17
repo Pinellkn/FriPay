@@ -94,6 +94,8 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppColors.gradientEmerald),
@@ -110,14 +112,14 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const FripayLogo(inverted: true, size: 76),
+                        FripayLogo(inverted: true, size: size.height * 0.09),
                         const SizedBox(height: 22),
                         Text(
                           'Bienvenue sur FriPay',
                           textAlign: TextAlign.center,
                           style: GoogleFonts.sora(
                             color: Colors.white,
-                            fontSize: 22,
+                            fontSize: size.height * 0.026,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
@@ -125,7 +127,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                         Text(
                           'Paiement mobile interopérable — Bénin',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.82), fontSize: 13),
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.82), fontSize: size.height * 0.016),
                         ),
                       ],
                     ),

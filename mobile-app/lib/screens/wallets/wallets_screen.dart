@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/models.dart' hide Wallet;
 import '../../services/account_service.dart';
 import '../../services/api_client.dart';
+import '../../services/auth_service.dart';
+import '../../services/network_prefixes.dart';
+import '../../services/token_storage.dart';
 import '../../services/wallet_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
@@ -30,17 +34,36 @@ class _WalletsScreenState extends State<WalletsScreen> {
   List<LinkedAccount>? _accounts;
   Wallet? _wallet;
   List<WalletLedgerEntry>? _ledger;
+  String? _fripayNumber;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    _loadFromCache();
     _load();
+  }
+
+  Future<void> _loadFromCache() async {
+    final fripay = await TokenStorage.instance.fripayNumber;
+    if (!mounted) return;
+    setState(() => _fripayNumber = fripay);
   }
 
   Future<void> _load() async {
     setState(() => _error = null);
-    await Future.wait([_loadAccounts(), _loadWallet(), _loadLedger()]);
+    await Future.wait([_loadProfile(), _loadAccounts(), _loadWallet(), _loadLedger()]);
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final me = await AuthService.instance.getMe();
+      final fripayNumber = (me['fripay_number'] as String?)?.trim();
+      if (!mounted) return;
+      setState(() => _fripayNumber = (fripayNumber != null && fripayNumber.isNotEmpty) ? fripayNumber : null);
+    } on ApiException catch (_) {
+      // Numéro FriPay optionnel sur cet écran : pas d'erreur bloquante.
+    }
   }
 
   Future<void> _loadAccounts() async {
@@ -78,7 +101,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
   String _ledgerReasonLabel(WalletLedgerEntry e) {
     if (e.description.isNotEmpty) return e.description;
     return switch (e.reason) {
-      'topup' => 'Dépôt',
+      'topup' => 'Recharge',
       'transfer_out' => 'Transfert envoyé',
       'transfer_in' => 'Transfert reçu',
       _ => e.reason.isNotEmpty ? e.reason : 'Mouvement',
@@ -157,6 +180,29 @@ class _WalletsScreenState extends State<WalletsScreen> {
                             _wallet != null ? formatFCFA(_wallet!.balance) : '—',
                             style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800),
                           ),
+                          if (_fripayNumber != null) ...[
+                            const SizedBox(height: 8),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () {
+                                Clipboard.setData(ClipboardData(text: _fripayNumber!));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Numéro FriPay copié.'), duration: Duration(seconds: 1)),
+                                );
+                              },
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'N° FriPay : ${NetworkPrefixes.format(_fripayNumber!)}',
+                                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  const Icon(Icons.copy_rounded, size: 12, color: Colors.white70),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -175,7 +221,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('Déposer'),
+                      label: const Text('Recharger'),
                     ),
                   ],
                 ),

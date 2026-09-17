@@ -71,6 +71,8 @@ class _AppScaffoldState extends State<AppScaffold> {
                         const SizedBox(height: 3),
                         Text(
                           item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.w700,

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\BillController;
 use App\Http\Controllers\Api\ComplaintController;
 use App\Http\Controllers\Api\MerchantQrController;
+use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TransferController;
 use App\Http\Controllers\Api\WalletController;
 use App\Http\Controllers\Api\WebhookController;
@@ -55,6 +56,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/bills/pay', [BillController::class, 'pay']);
         Route::get('/bills', [BillController::class, 'index']);
         Route::get('/bills/{id}', [BillController::class, 'show']);
+
+        // §8 - Interface technique : préfixes réseau
+        Route::get('/network/prefixes', [SystemController::class, 'prefixes']);
     });
 });
 
@@ -91,6 +95,15 @@ Route::prefix('v1')->group(function () {
     // QR Generate — authentifié + rate limité plus strictement (10 req/min, CPU-intensif)
     Route::post('/qr/generate', [\App\Http\Controllers\Api\OfflineQrController::class, 'generate'])
         ->middleware(['auth:sanctum', 'throttle:qr-generate']);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  §6.e — Parcours receveur externe (page web publique, pas de compte)
+// ═══════════════════════════════════════════════════════════════════════
+
+Route::prefix('v1')->middleware('throttle:qr-external-claim')->group(function () {
+    Route::get('/qr/external/{uuid}', [\App\Http\Controllers\Api\ExternalClaimController::class, 'lookup']);
+    Route::post('/qr/external/{uuid}/claim', [\App\Http\Controllers\Api\ExternalClaimController::class, 'claim']);
 });
 
 // ═══════════════════════════════════════════════════════════════════════

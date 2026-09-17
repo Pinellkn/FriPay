@@ -17,7 +17,7 @@ return [
             'name'         => 'Users Service',
             'base_url'     => 'http://127.0.0.1:8000',
             'routes'       => ['/api/v1/auth/', '/api/v1/users/', '/api/v1/notifications'],
-            'timeout'      => 15,
+            'timeout'      => 20,
             'health_check' => '/up',
         ],
         'payments' => [
@@ -91,6 +91,9 @@ return [
     */
     'monitoring' => [
         'allowed_ips' => ['127.0.0.1', '::1'],
+        // §8 - clé partagée pour que l'app mobile (interface technique) lise
+        // le statut du gateway sans être sur l'IP whitelistée.
+        'debug_key' => env('FRIPAY_GATEWAY_DEBUG_KEY', null),
     ],
 
     /*
@@ -115,6 +118,7 @@ return [
         'allowed_headers' => [
             'Content-Type', 'Authorization', 'Idempotency-Key',
             'X-Request-Id', 'Accept-Language', 'X-Signature',
+            'X-Fripay-Debug-Key',
         ],
         'max_age' => 86400,
     ],

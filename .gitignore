@@ -24,6 +24,11 @@ mobile-app/**/.flutter-plugins-dependencies
 mobile-app/**/.pub-cache/
 mobile-app/**/.pub/
 mobile-app/**/ios/Flutter/.last_build_id
+mobile-app/**/ios/Flutter/ephemeral/
+mobile-app/**/macos/Flutter/ephemeral/
+mobile-app/**/windows/flutter/ephemeral/
+mobile-app/**/Pods/
+mobile-app/**/.symlinks/
 mobile-app/**/android/app/debug
 mobile-app/**/android/app/profile
 mobile-app/**/android/app/release

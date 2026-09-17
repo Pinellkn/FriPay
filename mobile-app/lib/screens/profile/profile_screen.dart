@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../services/biometric_service.dart';
+import '../../services/network_prefixes.dart';
 import '../../services/token_storage.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/fripay_logo.dart';
@@ -12,12 +13,12 @@ import '../../widgets/otp_input_row.dart';
 import '../auth/login_screen.dart';
 import '../bills/bills_screen.dart';
 import '../complaints/complaints_screen.dart';
-import '../offline/offline_screen.dart';
 import '../wallets/wallets_screen.dart';
 import 'about_screen.dart';
 import 'change_pin_screen.dart';
 import 'help_center_screen.dart';
 import 'notifications_screen.dart';
+import 'technical_interface_screen.dart';
 
 /// Portage de src/routes/app.profil.tsx : identité, raccourcis vers les
 /// autres sections et déconnexion.
@@ -31,6 +32,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _biometricEnabled = false;
   bool _biometricSupported = false;
+  String _biometricName = 'biométrie';
+  IconData _biometricIcon = Icons.fingerprint_rounded;
   String _displayName = '…';
   String _displayPhone = '';
   String _initials = '·';
@@ -49,10 +52,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // d'un compte précédent (jamais activé par CE compte-ci) plutôt que
     // d'afficher le switch déjà activé à tort.
     final enabled = phone != null ? await BiometricService.instance.ensureOwnedBy(phone) : false;
+    
+    String name = 'biométrie';
+    IconData icon = Icons.fingerprint_rounded;
+    if (supported) {
+      name = await BiometricService.instance.getLocalizedName();
+      icon = await BiometricService.instance.getIcon();
+    }
+
     if (!mounted) return;
     setState(() {
       _biometricSupported = supported;
       _biometricEnabled = enabled;
+      _biometricName = name;
+      _biometricIcon = icon;
     });
   }
 
@@ -66,7 +79,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() {
         _displayName = full.isNotEmpty ? full : phone;
-        _displayPhone = phone;
+        _displayPhone = phone.isNotEmpty ? NetworkPrefixes.format(phone) : '';
         _initials = full.isNotEmpty
             ? full.trim().split(RegExp(r'\s+')).take(2).map((s) => s[0].toUpperCase()).join()
             : (phone.isNotEmpty ? phone.substring(phone.length - 2) : '·');
@@ -86,7 +99,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     if (value) {
       final ok = await BiometricService.instance.authenticate(
-        reason: 'Confirmez votre identité pour activer le déverrouillage biométrique',
+        reason: 'Confirmez votre identité pour activer le déverrouillage par $_biometricName',
       );
       if (!ok) {
         if (!mounted) return;
@@ -132,7 +145,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted) return;
     setState(() => _biometricEnabled = value);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(value ? 'Déverrouillage biométrique activé.' : 'Déverrouillage biométrique désactivé.')),
+      SnackBar(content: Text(value ? 'Déverrouillage par $_biometricName activé.' : 'Déverrouillage par $_biometricName désactivé.')),
     );
   }
 
@@ -148,9 +161,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Nécessaire une seule fois pour activer la connexion par empreinte.',
-              style: TextStyle(fontSize: 12.5, color: AppColors.mutedForeground),
+            Text(
+              'Nécessaire une seule fois pour activer la connexion par $_biometricName.',
+              style: const TextStyle(fontSize: 12.5, color: AppColors.mutedForeground),
             ),
             const SizedBox(height: 16),
             OtpInputRow(
@@ -259,11 +272,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () => _push(context, const BillsScreen()),
               ),
               _MenuItem(
-                icon: Icons.wifi_off_rounded,
-                label: 'Mode hors ligne',
-                onTap: () => _push(context, const OfflineScreen()),
-              ),
-              _MenuItem(
                 icon: Icons.report_problem_rounded,
                 label: 'Plaintes',
                 onTap: () => _push(context, const ComplaintsScreen()),
@@ -279,8 +287,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () => _push(context, const ChangePinScreen()),
               ),
               _MenuItem(
-                icon: Icons.fingerprint_rounded,
-                label: 'Déverrouillage biométrique',
+                icon: _biometricIcon,
+                label: 'Déverrouillage par $_biometricName',
                 trailing: Switch.adaptive(
                   value: _biometricEnabled,
                   activeThumbColor: AppColors.primary,
@@ -307,6 +315,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 icon: Icons.info_outline_rounded,
                 label: 'À propos de FriPay',
                 onTap: () => _push(context, const AboutScreen()),
+              ),
+              _MenuItem(
+                icon: Icons.dns_rounded,
+                label: 'Interface technique',
+                onTap: () => _push(context, const TechnicalInterfaceScreen()),
               ),
             ]),
             const SizedBox(height: 26),

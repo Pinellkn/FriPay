@@ -28,24 +28,43 @@ class OfflineQrCode extends Model
         'expires_at',
         'idempotency_key',
         'metadata',
+        'recipient_phone',
+        'has_recipient_account',
+        'external_validation_code',
+        'external_attempts',
+        'external_max_attempts',
+        'external_payout_number',
+        'external_payout_network',
+        'external_claimed_at',
+        'held_at',
+        'settled_at',
+        'refunded_at',
     ];
 
     protected $casts = [
-        'amount'      => 'integer',
-        'single_use'  => 'boolean',
-        'use_count'   => 'integer',
-        'expires_at'  => 'datetime',
-        'received_at' => 'datetime',
-        'redeemed_at' => 'datetime',
-        'metadata'    => 'array',
+        'amount'                 => 'integer',
+        'single_use'             => 'boolean',
+        'use_count'              => 'integer',
+        'expires_at'             => 'datetime',
+        'received_at'            => 'datetime',
+        'redeemed_at'            => 'datetime',
+        'metadata'               => 'array',
+        'has_recipient_account'  => 'boolean',
+        'external_attempts'      => 'integer',
+        'external_max_attempts'  => 'integer',
+        'external_claimed_at'    => 'datetime',
+        'held_at'                => 'datetime',
+        'settled_at'             => 'datetime',
+        'refunded_at'            => 'datetime',
     ];
 
     // ── Status constants ──────────────────────────────────────────────
-    const STATUS_ACTIVE   = 'active';
-    const STATUS_RECEIVED = 'received';
-    const STATUS_REDEEMED = 'redeemed';
-    const STATUS_EXPIRED  = 'expired';
-    const STATUS_REVOKED  = 'revoked';
+    const STATUS_ACTIVE    = 'active';
+    const STATUS_RECEIVED  = 'received';
+    const STATUS_REDEEMED  = 'redeemed';
+    const STATUS_EXPIRED   = 'expired';
+    const STATUS_REVOKED   = 'revoked';
+    const STATUS_CANCELLED = 'cancelled';
 
     // ── QR Mode constants ─────────────────────────────────────────────
     const MODE_CPM = 'cpm'; // Customer Present Mode — marchand scanne le client
@@ -79,10 +98,18 @@ class OfflineQrCode extends Model
 
     // ── State helpers ─────────────────────────────────────────────────
 
+    /**
+     * expires_at à null = QR "argent" P2P (§6.b) : aucun délai imposé,
+     * il reste valable tant qu'il n'est pas réclamé, révoqué ou annulé.
+     */
+    public function hasExpired(): bool
+    {
+        return $this->expires_at !== null && $this->expires_at->isPast();
+    }
+
     public function isActive(): bool
     {
-        return $this->status === self::STATUS_ACTIVE
-            && $this->expires_at->isFuture();
+        return $this->status === self::STATUS_ACTIVE && !$this->hasExpired();
     }
 
     public function isRedeemable(): bool
@@ -95,14 +122,32 @@ class OfflineQrCode extends Model
         }
 
         // Un QR actif n'est encaissable que s'il n'a pas expiré
-        return $this->status === self::STATUS_ACTIVE
-            && $this->expires_at->isFuture();
+        return $this->status === self::STATUS_ACTIVE && !$this->hasExpired();
     }
 
     public function isPayable(): bool
     {
-        return $this->status === self::STATUS_ACTIVE
-            && $this->expires_at->isFuture();
+        return $this->status === self::STATUS_ACTIVE && !$this->hasExpired();
+    }
+
+    // ── Parcours receveur externe (§6.e) ──────────────────────────────
+
+    public function isExternal(): bool
+    {
+        return $this->has_recipient_account === false;
+    }
+
+    public function externalAttemptsRemaining(): int
+    {
+        return max(0, $this->external_max_attempts - $this->external_attempts);
+    }
+
+    public function isExternallyClaimable(): bool
+    {
+        return $this->isExternal()
+            && in_array($this->status, [self::STATUS_ACTIVE, self::STATUS_RECEIVED], true)
+            && !$this->hasExpired()
+            && $this->externalAttemptsRemaining() > 0;
     }
 
     // ── Mode/Type helpers ─────────────────────────────────────────────
@@ -161,8 +206,14 @@ class OfflineQrCode extends Model
 
     public function scopeActive($query)
     {
+        // expires_at peut être NULL depuis §6.b (pas de délai imposé pour les
+        // QR argent P2P) : NULL n'est jamais > now() en SQL, donc il faut
+        // explicitement inclure les QR sans expiration.
         return $query->where('status', self::STATUS_ACTIVE)
-                     ->where('expires_at', '>', now());
+                     ->where(function ($q) {
+                         $q->whereNull('expires_at')
+                           ->orWhere('expires_at', '>', now());
+                     });
     }
 
     public function scopeMerchantQr($query)

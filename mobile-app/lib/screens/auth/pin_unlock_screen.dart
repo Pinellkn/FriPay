@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
+import '../../services/network_prefixes.dart';
 import '../../services/token_storage.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/otp_input_row.dart';
@@ -85,7 +86,7 @@ class _PinUnlockScreenState extends State<PinUnlockScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -96,7 +97,7 @@ class _PinUnlockScreenState extends State<PinUnlockScreen> {
                   style: GoogleFonts.sora(fontSize: 18, fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
               Text(
-                _phone ?? '',
+                _phone != null ? NetworkPrefixes.format(_phone!) : '',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: AppColors.mutedForeground, fontSize: 12.5),
               ),
@@ -120,7 +121,7 @@ class _PinUnlockScreenState extends State<PinUnlockScreen> {
                 const SizedBox(height: 18),
                 const Center(child: CircularProgressIndicator(strokeWidth: 2.4)),
               ],
-              const Spacer(),
+              const SizedBox(height: 60),
               TextButton(
                 onPressed: _logoutInstead,
                 child: const Text('Se déconnecter et utiliser un autre compte'),
