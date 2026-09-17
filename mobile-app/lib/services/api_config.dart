@@ -22,7 +22,7 @@ class ApiConfig {
 
   /// IP locale (Wi-Fi) de la machine qui héberge le backend FriPay.
   /// Vérifier avec `ipconfig` si l'adresse change (ex. reconnexion Wi-Fi).
-  static const String kLanHost = '192.168.1.68';
+  static const String kLanHost = '192.168.0.3';
 
   static String get _host {
     if (Platform.isAndroid) {

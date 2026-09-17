@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\CorridorController;
 use App\Http\Controllers\Api\Admin\DashboardController;
+use App\Http\Controllers\Api\Admin\PhonePrefixController;
 use App\Http\Controllers\Api\Admin\StaffController;
 use App\Http\Controllers\Api\Admin\TransactionController as AdminTransactionController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
@@ -45,6 +46,16 @@ Route::prefix('v1')->group(function () {
         Route::post('/admin/corridors', [CorridorController::class, 'store'])
             ->middleware('admin:corridors.write');
         Route::put('/admin/corridors/{corridor_id}', [CorridorController::class, 'update'])
+            ->middleware('admin:corridors.write');
+
+        // §8 — Interface technique : gestion des préfixes réseau
+        // (MTN/Moov/Celtiis). La détection d'opérateur (fripay-common) lit
+        // la même table phone_prefixes : effet immédiat, sans redéploiement.
+        Route::get('/admin/phone-prefixes', [PhonePrefixController::class, 'index'])
+            ->middleware('admin:corridors.read');
+        Route::post('/admin/phone-prefixes', [PhonePrefixController::class, 'store'])
+            ->middleware('admin:corridors.write');
+        Route::delete('/admin/phone-prefixes/{prefixId}', [PhonePrefixController::class, 'destroy'])
             ->middleware('admin:corridors.write');
 
         // Dashboard

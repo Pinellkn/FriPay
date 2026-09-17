@@ -77,6 +77,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Agrégateur FeexPay — RECHARGE du wallet (collecte mobile money)
+    |--------------------------------------------------------------------------
+    |
+    | Utilisé en attendant les API natives MTN/Moov/Celtiis. Un seul contrat
+    | marchand (shop ID + token API) couvre MTN et Moov pour la collecte.
+    | Cles : https://feexpay.me -> Tableau de bord marchand -> API
+    |
+    | NOTE : FeexPay n'expose pas d'endpoint public de disbursement (payout) :
+    | le RETRAIT reste sur les connecteurs opérateurs natifs ou le retrait
+    | agent.
+    |
+    */
+    'feexpay' => [
+        'id'       => env('FEEXPAY_ID'),       // ID boutique (shop)
+        'token'    => env('FEEXPAY_TOKEN'),    // clé API marchande
+        'base_url' => env('FEEXPAY_BASE_URL', 'https://api.feexpay.me'),
+        'callback_url' => env('FEEXPAY_CALLBACK_URL'), // webhook public (optionnel en dev)
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | File d'attente des transferts différés (outbox)
     |--------------------------------------------------------------------------
     |

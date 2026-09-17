@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\BillController;
 use App\Http\Controllers\Api\ComplaintController;
 use App\Http\Controllers\Api\MerchantQrController;
 use App\Http\Controllers\Api\SystemController;
+use App\Http\Controllers\Api\TopupController;
 use App\Http\Controllers\Api\TransferController;
 use App\Http\Controllers\Api\WalletController;
 use App\Http\Controllers\Api\WebhookController;
@@ -24,6 +25,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/webhooks/pispi', [WebhookController::class, 'handlePispi']);
         // MTN MoMo : callback natif (pas de signature HMAC)
         Route::post('/webhooks/mtn', [WebhookController::class, 'handleMtn']);
+        // FeexPay : callback collecte request-to-pay (sans signature HMAC ;
+        // le statut est toujours re-vérifié auprès de l'API avant crédit)
+        Route::post('/webhooks/feexpay', [WebhookController::class, 'handleFeexpay']);
     });
 
     // --- Routes protégées ---
@@ -34,6 +38,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
         Route::post('/wallet/topup', [WalletController::class, 'topup']);
         Route::post('/wallet/withdraw', [WalletController::class, 'withdraw']);
+
+        // Recharge via l'agrégateur FeexPay (cahier des charges : « Dépôt »
+        // renommé « Recharge ») — crédité à la confirmation du paiement.
+        Route::post('/wallet/topup/feexpay', [TopupController::class, 'initiate']);
+        Route::get('/wallet/topup/feexpay', [TopupController::class, 'index']);
+        Route::get('/wallet/topup/feexpay/{topupId}', [TopupController::class, 'status']);
 
         // Simulation de frais
         Route::post('/transfers/quote', [TransferController::class, 'quote']);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Transaction;
 use App\Models\TransactionStatusHistory;
 use App\Models\WebhookEvent;
+use App\Services\TopupService;
 use App\Services\TransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,7 +14,57 @@ use Illuminate\Support\Facades\Log;
 
 class WebhookController extends Controller
 {
-    public function __construct(private readonly TransferService $transferService) {}
+    public function __construct(
+        private readonly TransferService $transferService,
+        private readonly TopupService $topupService,
+    ) {}
+
+    /**
+     * POST /api/v1/webhooks/feexpay
+     *
+     * Callback FeexPay (collecte request-to-pay). Le SDK officiel transmet
+     * callback_info / reference dans le corps — la référence FeexPay permet
+     * de retrouver le topup. Le callback arrive SANS signature : on journalise
+     * l'IP et on vérifie le statut directement auprès de l'API FeexPay
+     * (source de vérité) avant de créditer — un appel forgé ne peut donc pas
+     * créditer un wallet.
+     *
+     * Payload attendu (variables selon l'événement) :
+     * { reference, status, amount, phoneNumber, ... }
+     */
+    public function handleFeexpay(Request $request): JsonResponse
+    {
+        $payload = $request->all();
+
+        $providerReference = (string) ($payload['reference'] ?? '');
+
+        $webhookEvent = WebhookEvent::create([
+            'provider'        => 'feexpay',
+            'signature_valid' => false, // pas de signature HMAC chez FeexPay
+            'payload'         => $payload,
+            'processed'       => false,
+        ]);
+
+        if ($providerReference === '') {
+            Log::warning('Webhook FeexPay sans référence', ['ip' => $request->ip()]);
+
+            return response()->json(['status' => 'ok'], 200); // 200 pour éviter les retries inutiles
+        }
+
+        // Source de vérité : on re-interroge l'API FeexPay plutôt que de
+        // faire confiance au corps du callback (pas de signature disponible).
+        $topup = $this->topupService->refreshStatusByProviderReference($providerReference);
+
+        $webhookEvent->update(['processed' => true]);
+
+        Log::info('Webhook FeexPay traité', [
+            'reference' => $providerReference,
+            'topup'     => $topup?->id,
+            'status'    => $topup?->status,
+        ]);
+
+        return response()->json(['status' => 'ok'], 200);
+    }
 
     /**
      * POST /api/v1/webhooks/aggregator/{provider}

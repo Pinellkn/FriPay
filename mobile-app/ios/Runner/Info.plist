@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>FriPay a besoin d'accéder à vos contacts pour vous permettre d'en ajouter comme raccourcis d'envoi.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>FriPay utilise Face ID pour déverrouiller rapidement votre application et authentifier vos paiements.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
