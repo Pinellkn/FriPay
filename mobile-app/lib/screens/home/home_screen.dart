@@ -250,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   tx: t,
                   operatorId: _operatorIdFromCode(t.recipientOperator),
                   status: _txStatus(t.status),
+                  onCancelled: _loadRecent,
                 )),
           ],
         ),
@@ -258,14 +259,36 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _TxTile extends StatelessWidget {
+class _TxTile extends StatefulWidget {
   final Transaction tx;
   final OperatorId operatorId;
   final TxStatus status;
-  const _TxTile({required this.tx, required this.operatorId, required this.status});
+  final VoidCallback onCancelled;
+  const _TxTile({required this.tx, required this.operatorId, required this.status, required this.onCancelled});
+
+  @override
+  State<_TxTile> createState() => _TxTileState();
+}
+
+class _TxTileState extends State<_TxTile> {
+  bool _cancelling = false;
+
+  Future<void> _cancel() async {
+    setState(() => _cancelling = true);
+    try {
+      await TransferService.instance.cancel(widget.tx.id);
+      widget.onCancelled();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.userMessage)));
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final tx = widget.tx;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
@@ -276,7 +299,7 @@ class _TxTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          OperatorAvatar(id: operatorId, size: 42),
+          OperatorAvatar(id: widget.operatorId, size: 42),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -285,6 +308,23 @@ class _TxTile extends StatelessWidget {
                 Text(tx.recipientName ?? tx.recipientPhone, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
                 const SizedBox(height: 2),
                 Text(tx.reference, style: const TextStyle(color: AppColors.mutedForeground, fontSize: 11.5)),
+                // §7 : une transaction en attente doit rester traçable ET
+                // actionnable — avant ce correctif, rien ne permettait de
+                // l'annuler depuis l'historique alors que la route backend
+                // POST /transfers/{id}/cancel existait déjà, inutilisée.
+                if (widget.status == TxStatus.enAttente)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: _cancelling
+                        ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                        : InkWell(
+                            onTap: _cancel,
+                            child: const Text(
+                              'Annuler',
+                              style: TextStyle(color: AppColors.destructive, fontSize: 12, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                  ),
               ],
             ),
           ),
@@ -293,7 +333,7 @@ class _TxTile extends StatelessWidget {
             children: [
               Text('-${formatFCFA(tx.amount.round())}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppColors.foreground)),
               const SizedBox(height: 4),
-              StatusBadge(status: status),
+              StatusBadge(status: widget.status),
             ],
           ),
         ],
