@@ -13,6 +13,7 @@ import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../services/network_prefixes.dart';
 import '../../services/transfer_service.dart';
+import '../scan/scan_hub_screen.dart';
 import '../../services/wallet_service.dart';
 import '../../services/token_storage.dart';
 import '../../widgets/fripay_refresh.dart';
@@ -231,6 +232,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             const SizedBox(height: 24),
+            // Zone de scan centrale : reconnaît tout type de QR FriPay
+            // (marchand ou argent) et route automatiquement.
+            _ScanBanner(onTap: () => _push(context, const ScanHubScreen())),
+            const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -252,6 +257,63 @@ class _HomeScreenState extends State<HomeScreen> {
                   status: _txStatus(t.status),
                   onCancelled: _loadRecent,
                 )),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bannière d'accès à la zone de scan centrale (reconnaissance automatique
+/// des QR marchands et argent).
+class _ScanBanner extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ScanBanner({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        decoration: BoxDecoration(
+          color: AppColors.primaryDeep,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryDeep.withValues(alpha: 0.22),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), shape: BoxShape.circle),
+              child: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Scanner un QR', style: GoogleFonts.sora(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Paiement marchand ou réception d\'argent — reconnaissance automatique',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 11.5, height: 1.3),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Colors.white70),
           ],
         ),
       ),

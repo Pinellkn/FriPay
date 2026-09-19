@@ -41,27 +41,44 @@ class QrDownloadService {
   Future<bool> hasAccess() => Gal.hasAccess();
 
   /// Partage le QR via la feuille de partage native du système
-  /// (WhatsApp, SMS, e-mail, etc.) : l'image PNG est écrite dans un
-  /// fichier temporaire puis transmise à Share — le texte ([text])
-  /// accompagne l'image (message + N° FriPay, par ex.).
+  /// (WhatsApp, SMS, e-mail, etc.). Stratégie en deux essais :
+  /// 1. image PNG rendue à la volée + texte d'accompagnement ;
+  /// 2. repli : texte seul (le jeton QR ne sert pas au payeur humain,
+  ///    on envoie donc un message explicite plutôt que rien du tout).
   ///
-  /// Sur Windows/desktop, si aucune application de partage n'est
-  /// enregistrée, le PNG reste dans les fichiers temporaires et le
-  /// chemin est retourné pour affichage.
-  Future<String?> shareQrImage(String data, {String text = '', int size = 1024}) async {
-    final bytes = await _renderPng(data, size);
-    final tmpDir = await getTemporaryDirectory();
-    final file = File('${tmpDir.path}/fripay-qr-${DateTime.now().millisecondsSinceEpoch}.png');
-    await file.writeAsBytes(bytes);
+  /// Retourne true si le partage a bien été transmis au système.
+  /// Lève [QrDownloadException] si même le rendu a échoué.
+  Future<bool> shareQrImage(String data, {String text = '', int size = 1024}) async {
+    var fileShared = false;
+    try {
+      final bytes = await _renderPng(data, size);
+      final tmpDir = await getTemporaryDirectory();
+      final file = File('${tmpDir.path}/fripay-qr-${DateTime.now().millisecondsSinceEpoch}.png');
+      await file.writeAsBytes(bytes);
 
-    final result = await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path)],
-        text: text.isEmpty ? null : text,
-        title: 'Mon QR FriPay',
-      ),
-    );
-    return result.status == ShareResultStatus.success ? file.path : null;
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          text: text.isEmpty ? null : text,
+          title: 'Mon QR FriPay',
+        ),
+      );
+      fileShared = result.status == ShareResultStatus.success;
+    } on QrDownloadException {
+      rethrow;
+    } catch (_) {
+      // Rendu ou partage de fichier impossible (plugin natif absent du
+      // build, permission refusée...) : on retente en texte seul.
+    }
+    if (fileShared) return true;
+
+    if (text.isEmpty) return false;
+    try {
+      final result = await SharePlus.instance.share(ShareParams(text: text, title: 'Mon QR FriPay'));
+      return result.status == ShareResultStatus.success;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<Uint8List> _renderPng(String data, int size) async {

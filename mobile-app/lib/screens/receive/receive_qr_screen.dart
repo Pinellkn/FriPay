@@ -14,7 +14,11 @@ import '../scan/qr_scan_screen.dart';
 /// encaisser (§6.b, POST /qr/redeem) ou transmettre à un tiers (§6.c,
 /// POST /qr/transfer).
 class ReceiveQrScreen extends StatefulWidget {
-  const ReceiveQrScreen({super.key});
+  /// Contenu QR déjà scanné (via la zone de scan centrale) : si fourni,
+  /// l'écran ne redemande pas le scan et traite immédiatement la réception.
+  final String? preScannedCode;
+
+  const ReceiveQrScreen({super.key, this.preScannedCode});
 
   @override
   State<ReceiveQrScreen> createState() => _ReceiveQrScreenState();
@@ -32,6 +36,17 @@ class _ReceiveQrScreenState extends State<ReceiveQrScreen> {
 
   final _transferPhoneCtrl = TextEditingController();
   bool _showTransferField = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Arrivée depuis la zone de scan centrale avec un QR déjà lu : on
+    // enchaîne directement la réception sans redemander un scan.
+    final pre = widget.preScannedCode;
+    if (pre != null && pre.isNotEmpty) {
+      _receiveCode(pre);
+    }
+  }
 
   @override
   void dispose() {
@@ -56,7 +71,12 @@ class _ReceiveQrScreenState extends State<ReceiveQrScreen> {
       MaterialPageRoute(builder: (_) => const QrScanScreen()),
     );
     if (code == null || code.isEmpty || !mounted) return;
+    await _receiveCode(code);
+  }
 
+  /// Traite la réception d'un contenu QR déjà obtenu (scan direct ou
+  /// pré-scanné depuis la zone centrale). Met à jour l'état d'affichage.
+  Future<void> _receiveCode(String code) async {
     setState(() {
       _receiving = true;
       _error = null;

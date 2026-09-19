@@ -54,7 +54,10 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
       }
       final shared = await QrDownloadService.instance.shareQrImage(qr.qrCode, text: buffer.toString().trim());
       if (!mounted) return;
-      _snack(shared == null ? 'Partage annulé' : 'QR partagé');
+      _snack(shared ? 'QR partagé' : 'Partage annulé ou indisponible sur cet appareil.');
+    } on QrDownloadException catch (e) {
+      if (!mounted) return;
+      _snack(e.message);
     } catch (_) {
       if (!mounted) return;
       _snack("Impossible de partager le QR pour le moment.");
