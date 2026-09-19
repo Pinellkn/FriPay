@@ -139,17 +139,47 @@ class BiometricService {
     }
   }
 
-  // --- Personnalisation selon la plateforme (cahier §3) ---
-  //
-  // §3 impose explicitement : iPhone -> Face ID SEULEMENT, Android/autres
-  // -> empreinte SEULEMENT, jamais l'option de l'autre plateforme. On se
-  // base donc sur Platform.isIOS, PAS sur les BiometricType renvoyés par
-  // l'appareil (un Android avec reconnaissance faciale intégrée aurait
-  // sinon affiché "Face ID" à tort).
+  // Les libellés/icônes s'adaptent à la biométrie RÉELLEMENT disponible
+  // sur l'appareil (fingerprint, face, iris) : un téléphone Android sans
+  // capteur d'empreinte mais avec reconnaissance faciale doit afficher
+  // "reconnaissance faciale", pas "empreinte". Le fallback reste fidèle
+  // au cahier §3 : iOS -> Face ID, Android -> empreinte.
 
-  /// Retourne le nom de la biométrie adaptée à l'appareil (ex: "Face ID" ou
-  /// "empreinte").
+  // Les libellés/icônes s'adaptent à la biométrie RÉELLEMENT disponible
+  // sur l'appareil (fingerprint, face, iris) : un téléphone Android sans
+  // capteur d'empreinte mais avec reconnaissance faciale doit afficher
+  // "reconnaissance faciale", pas "empreinte". Le fallback reste fidèle
+  // au cahier §3 : iOS -> Face ID, Android -> empreinte.
+  //
+  // NOTE : Android 11+ masque volontairement le type exact tant que
+  // l'utilisateur n'a pas validé un prompt (Class 3 only) — si face et
+  // empreinte coexistent et que la détection est ambiguë, on affiche
+  // l'étiquette générique "biométrie".
+
+  /// Types de biométrie réellement inscrits sur l'appareil (cache).
+  List<BiometricType>? _cachedBiometrics;
+
+  Future<List<BiometricType>> _resolvedBiometrics() async {
+    final cached = _cachedBiometrics;
+    if (cached != null) return cached;
+    final list = await availableBiometrics();
+    _cachedBiometrics = list;
+    return list;
+  }
+
+  /// Retourne le nom de la biométrie adaptée à l'appareil (ex: "Face ID",
+  /// "empreinte", "reconnaissance faciale").
   Future<String> getLocalizedName() async {
+    final biometrics = await _resolvedBiometrics();
+    final hasFace = biometrics.contains(BiometricType.face);
+    final hasFingerprint = biometrics.contains(BiometricType.fingerprint);
+    if (hasFace && hasFingerprint) {
+      return 'biométrie'; // étiquette neutre quand les deux coexistent
+    }
+    if (hasFace) return Platform.isIOS ? 'Face ID' : 'reconnaissance faciale';
+    if (hasFingerprint) return 'empreinte';
+    // Rien de détecté (peut arriver avant première authentification sur
+    // Android 11+) : fallback plateforme, comme avant.
     return Platform.isIOS ? 'Face ID' : 'empreinte';
   }
 
@@ -159,8 +189,15 @@ class BiometricService {
     return 'Connexion par $name';
   }
 
-  /// Retourne l'icône Material adaptée (empreinte ou reconnaissance faciale).
+  /// Retourne l'icône Material adaptée (empreinte, reconnaissance faciale
+  /// ou générique quand les deux coexistent).
   Future<IconData> getIcon() async {
+    final biometrics = await _resolvedBiometrics();
+    final hasFace = biometrics.contains(BiometricType.face);
+    final hasFingerprint = biometrics.contains(BiometricType.fingerprint);
+    if (hasFace && hasFingerprint) return Icons.enhanced_encryption_rounded;
+    if (hasFace) return Icons.face_retouching_natural_rounded;
+    if (hasFingerprint) return Icons.fingerprint_rounded;
     return Platform.isIOS ? Icons.face_retouching_natural_rounded : Icons.fingerprint_rounded;
   }
 }
