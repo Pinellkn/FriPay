@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../models/models.dart' hide Wallet;
 import '../../services/account_service.dart';
@@ -161,68 +162,99 @@ class _WalletsScreenState extends State<WalletsScreen> {
                 title: 'Solde FriPay',
                 subtitle: 'Porte-monnaie interne, distinct de vos comptes mobile money.',
               ),
+              // Carte solde — même langage visuel que BalanceCard (accueil) :
+              // dégradé émeraude, montant en Sora, pilule « N° FriPay ».
+              // Structure en Column : l'ancienne version en Row (textes à
+              // gauche, bouton à droite) laissait le numéro FriPay déborder
+              // sous le bouton Recharger (overflow ~11 px) faute de largeur
+              // contrainte sur la Row du numéro.
               Container(
+                width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 22),
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(20),
+                  gradient: AppColors.gradientEmerald,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primaryDeep.withValues(alpha: 0.28),
+                      blurRadius: 24,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Solde disponible', style: TextStyle(color: Colors.white70, fontSize: 12.5)),
-                          const SizedBox(height: 6),
-                          Text(
-                            _wallet != null ? formatFCFA(_wallet!.balance) : '—',
-                            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Solde disponible',
+                            style: TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
                           ),
-                          if (_fripayNumber != null) ...[
-                            const SizedBox(height: 8),
-                            InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () {
-                                Clipboard.setData(ClipboardData(text: _fripayNumber!));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Numéro FriPay copié.'), duration: Duration(seconds: 1)),
-                                );
-                              },
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'N° FriPay : ${NetworkPrefixes.format(_fripayNumber!)}',
-                                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700),
-                                  ),
-                                  const SizedBox(width: 5),
-                                  const Icon(Icons.copy_rounded, size: 12, color: Colors.white70),
-                                ],
+                        ),
+                        TextButton.icon(
+                          onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RechargeScreen())),
+                          style: TextButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: AppColors.primaryDeep,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: const StadiumBorder(),
+                            // Garde-fou contre le crash _InputPadding : bouton
+                            // Material placé à côté d'un Expanded dans la même Row.
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text('Recharger', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _wallet != null ? formatFCFA(_wallet!.balance) : '—',
+                      style: GoogleFonts.sora(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    if (_fripayNumber != null) ...[
+                      const SizedBox(height: 12),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: _fripayNumber!));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Numéro FriPay copié.'), duration: Duration(seconds: 1)),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  'N° FriPay : ${NetworkPrefixes.format(_fripayNumber!)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.2),
+                                ),
                               ),
-                            ),
-                          ],
-                        ],
+                              const SizedBox(width: 6),
+                              Icon(Icons.copy_rounded, size: 13, color: Colors.white.withValues(alpha: 0.8)),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RechargeScreen())),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white54),
-                        // Corrige un crash de layout Flutter connu : sans ces deux
-                        // réglages, le calcul interne de la zone de tap minimale
-                        // (_InputPadding) reçoit une largeur infinie quand ce bouton
-                        // est placé à côté d'un Expanded dans la même Row — ce qui
-                        // faisait planter tout l'écran Portefeuilles (blanc ou texte
-                        // compressé lettre par lettre).
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('Recharger'),
-                    ),
+                    ],
                   ],
                 ),
               ),

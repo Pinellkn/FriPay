@@ -6,6 +6,7 @@ import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../services/contact_service.dart';
 import '../../services/merchant_qr_service.dart';
+import '../../services/qr_download_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/add_contact_sheet.dart';
@@ -36,6 +37,29 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
   List<FripayContact> _contacts = [];
 
   void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  /// Partage le QR marchand via la feuille native du système : l'image PNG
+  /// du QR + un message explicite (destinataire + N° FriPay). Avant ce
+  /// correctif, le bouton "Partager" ne faisait qu'afficher un snackbar
+  /// "Lien de paiement partagé" sans rien partager du tout — il n'existe
+  /// d'ailleurs aucun lien de paiement côté API, le QR est l'objet partageable.
+  Future<void> _shareQr() async {
+    final qr = _merchantQr;
+    if (qr == null) return;
+    try {
+      final buffer = StringBuffer('Reçois-moi sur FriPay ! Scanne ce QR pour me payer')
+        ..writeln();
+      if (_phone.isNotEmpty) {
+        buffer.writeln('Tél : $_phone');
+      }
+      final shared = await QrDownloadService.instance.shareQrImage(qr.qrCode, text: buffer.toString().trim());
+      if (!mounted) return;
+      _snack(shared == null ? 'Partage annulé' : 'QR partagé');
+    } catch (_) {
+      if (!mounted) return;
+      _snack("Impossible de partager le QR pour le moment.");
+    }
+  }
 
   @override
   void initState() {
@@ -209,7 +233,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
                         style: OutlinedButton.styleFrom(minimumSize: const Size(0, 42)),
                       ),
                       ElevatedButton.icon(
-                        onPressed: _merchantQr == null ? null : () => _snack('Lien de paiement partagé'),
+                        onPressed: _merchantQr == null ? null : _shareQr,
                         icon: const Icon(Icons.share_rounded, size: 16),
                         label: const Text('Partager'),
                         style: ElevatedButton.styleFrom(minimumSize: const Size(0, 42)),

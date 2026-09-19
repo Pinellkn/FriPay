@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:gal/gal.dart';
+import 'package:path_provider/path_provider.dart' show getTemporaryDirectory;
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Téléchargement du QR "argent" généré : rendu en PNG haute résolution
 /// puis enregistrement dans la galerie du téléphone (MediaStore).
@@ -36,6 +39,30 @@ class QrDownloadService {
   /// Vérifie silencieusement l'accès à la galerie (utilisable pour
   /// désactiver le bouton de téléchargement si refus définitif).
   Future<bool> hasAccess() => Gal.hasAccess();
+
+  /// Partage le QR via la feuille de partage native du système
+  /// (WhatsApp, SMS, e-mail, etc.) : l'image PNG est écrite dans un
+  /// fichier temporaire puis transmise à Share — le texte ([text])
+  /// accompagne l'image (message + N° FriPay, par ex.).
+  ///
+  /// Sur Windows/desktop, si aucune application de partage n'est
+  /// enregistrée, le PNG reste dans les fichiers temporaires et le
+  /// chemin est retourné pour affichage.
+  Future<String?> shareQrImage(String data, {String text = '', int size = 1024}) async {
+    final bytes = await _renderPng(data, size);
+    final tmpDir = await getTemporaryDirectory();
+    final file = File('${tmpDir.path}/fripay-qr-${DateTime.now().millisecondsSinceEpoch}.png');
+    await file.writeAsBytes(bytes);
+
+    final result = await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path)],
+        text: text.isEmpty ? null : text,
+        title: 'Mon QR FriPay',
+      ),
+    );
+    return result.status == ShareResultStatus.success ? file.path : null;
+  }
 
   Future<Uint8List> _renderPng(String data, int size) async {
     final painter = QrPainter(

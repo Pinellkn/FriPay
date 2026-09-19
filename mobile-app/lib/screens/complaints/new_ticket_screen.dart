@@ -150,6 +150,10 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
             else
               DropdownButtonFormField<String>(
                 initialValue: _linkedTxId,
+                // isExpanded évite l'overflow du hint/flèche : sans lui, le
+                // contenu du dropdown déborde de la ligne quand le texte est
+                // long (« Aucune transaction sélectionnée » + flèche).
+                isExpanded: true,
                 decoration: const InputDecoration(hintText: 'Aucune transaction sélectionnée'),
                 items: _transactions
                     .map((t) => DropdownMenuItem(

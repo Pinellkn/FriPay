@@ -27,6 +27,8 @@ dependencies:
   gal: ^2.3.0
   # Recomposition d'images (retry de décodage des QR téléversés).
   image: ^4.2.0
+  share_plus: ^13.3.0
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:
