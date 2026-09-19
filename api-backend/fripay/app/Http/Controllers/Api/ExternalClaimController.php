@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Notification;
 use App\Models\OfflineQrCode;
 use App\Models\OfflineQrEvent;
 use App\Services\OperatorDetectionService;
@@ -213,6 +214,23 @@ class ExternalClaimController extends Controller
             'qr_external_claim_failed_refund',
             "Remboursement QR argent — 3 tentatives de retrait externe échouées"
         );
+
+        // Alerte à l'ENVOYEUR (cahier des charges) : après 3 échecs du code
+        // de vérification, la transaction est annulée et il est prévenu
+        // que son argent lui a été restitué.
+        Notification::create([
+            'user_id' => $qr->sender_user_id,
+            'type'    => 'transaction_update',
+            'channel' => 'in_app',
+            'title'   => 'QR non retiré — code erroné 3 fois',
+            'body'    => sprintf(
+                "Le destinataire de votre QR de %s FCFA a échoué 3 fois sur le code de vérification. "
+                . 'La transaction a été annulée et le montant a été recrédité sur votre compte.',
+                number_format((float) $qr->amount, 0, ',', ' ')
+            ),
+            'related_transaction_id' => null,
+            'read'    => false,
+        ]);
 
         OfflineQrEvent::create([
             'offline_qr_code_id' => $qr->id,

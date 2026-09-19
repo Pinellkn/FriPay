@@ -51,8 +51,10 @@ class QrCryptoService
      * @param string      $publicKey      Clé publique Ed25519
      * @param string|null $recipientHint  Indice sur le destinataire
      * @param string|null $expiresAt      Date d'expiration ISO 8601
-     * @param string      $mode           cpm ou mpm
-     * @param string|null $description    Description du paiement
+     * @param string      $mode                cpm ou mpm
+     * @param string|null $description         Description du paiement
+     * @param string|null $senderFripayNumber  Numéro Fripay de l'envoyeur (constituant du QR, cahier des charges)
+     * @param string|null $recipientFripayNumber Numéro Fripay du receveur si compte existant (sinon null)
      * @return array{payload: string, signature: string, uuid: string, qr_content: string}
      */
     public function createSignedPayload(
@@ -64,6 +66,8 @@ class QrCryptoService
         ?string $expiresAt = null,
         string $mode = 'mpm',
         ?string $description = null,
+        ?string $senderFripayNumber = null,
+        ?string $recipientFripayNumber = null,
     ): array {
         $uuid = (string) Str::uuid();
         $timestamp = now()->toIso8601String();
@@ -81,6 +85,16 @@ class QrCryptoService
             'expires_at'     => $expiresAt,
             'description'    => $description,
         ];
+
+        // Constituants supplémentaires du QR « argent » (cahier des
+        // charges) : identité Fripay de l'envoyeur et, si le receveur a un
+        // compte, son numéro Fripay. Signés avec le reste du payload.
+        if ($senderFripayNumber !== null) {
+            $data['sender_fripay_number'] = $senderFripayNumber;
+        }
+        if ($recipientFripayNumber !== null) {
+            $data['recipient_fripay_number'] = $recipientFripayNumber;
+        }
 
         $payload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 

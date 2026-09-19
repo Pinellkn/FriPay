@@ -119,8 +119,17 @@ if (-not $hasKey) {
 }
 
 # Migrations (idempotent : ne rejoue que ce qui manque)
+# NB : on n'ignore plus la sortie — une migration qui echoue (ex. base restoree
+# depuis un dump sans la table migrations) doit arreter le demarrage, sinon le
+# bug se manifeste plus tard sous forme d'erreurs SQL obscures (colonne inconnue).
 Write-Host "[4/5] Migrations..." -NoNewline
-& $PHP artisan migrate --force 2>&1 | Out-Null
+$migOutput = & $PHP artisan migrate --force 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host " ECHEC" -ForegroundColor Red
+    Write-Host $migOutput
+    Write-Host "ERREUR: migrations echouees - verifier MySQL et la base 'fripay', puis relancer." -ForegroundColor Red
+    exit 1
+}
 Write-Host " OK" -ForegroundColor Green
 Pop-Location
 

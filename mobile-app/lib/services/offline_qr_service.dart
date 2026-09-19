@@ -13,6 +13,9 @@ class GeneratedQr {
   final bool? hasRecipientAccount;
   final String? externalValidationCode;
 
+  /// Numéro Fripay de l'ENVOYEUR (constituant du QR, cahier des charges).
+  final String? senderFripayNumber;
+
   GeneratedQr({
     required this.qrCode,
     required this.uuid,
@@ -21,6 +24,7 @@ class GeneratedQr {
     this.expiresAt,
     this.hasRecipientAccount,
     this.externalValidationCode,
+    this.senderFripayNumber,
   });
 
   factory GeneratedQr.fromJson(Map<String, dynamic> j) => GeneratedQr(
@@ -31,6 +35,7 @@ class GeneratedQr {
         expiresAt: j['expires_at'] as String?,
         hasRecipientAccount: j['has_recipient_account'] as bool?,
         externalValidationCode: j['external_validation_code'] as String?,
+        senderFripayNumber: j['sender_fripay_number'] as String?,
       );
 }
 
@@ -82,11 +87,15 @@ class OfflineQrService {
   /// détection auto du compte du receveur (§6.e) ; si fourni et que le
   /// receveur n'a pas de compte, un code à 5 chiffres est retourné pour
   /// transmission hors appli (WhatsApp, etc.).
+  /// [validationCode] : code de vérification à 5 chiffres DÉFINI PAR
+  /// L'ENVOYEUR (cahier des charges) — il le transmet lui-même au receveur
+  /// sans compte Fripay, qui devra le saisir sur la page web de retrait.
   Future<GeneratedQr> generate({
     required int amount,
     String? recipientPhone,
     String? recipientHint,
     int? expiresMinutes,
+    String? validationCode,
   }) async {
     final res = await _api.post('/qr/generate', body: {
       'amount': amount,
@@ -97,6 +106,8 @@ class OfflineQrService {
       if (recipientHint != null && recipientHint.isNotEmpty) 'recipient_hint': recipientHint,
       // ignore: use_null_aware_elements
       if (expiresMinutes != null) 'expires_minutes': expiresMinutes,
+      // ignore: use_null_aware_elements
+      if (validationCode != null && validationCode.isNotEmpty) 'external_validation_code': validationCode,
     });
     return GeneratedQr.fromJson(res as Map<String, dynamic>);
   }

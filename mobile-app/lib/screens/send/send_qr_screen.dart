@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../services/offline_qr_service.dart';
+import '../../services/qr_download_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/section_header.dart';
@@ -28,17 +29,48 @@ class _SendQrScreenState extends State<SendQrScreen> {
 
   bool _generating = false;
   bool _revoking = false;
+  bool _downloading = false;
   String? _error;
   GeneratedQr? _qr;
+
+  /// Code de vérification (5 chiffres) DÉFINI PAR L'ENVOYEUR — cahier des
+  /// charges : c'est lui qui le choisit et le transmet au receveur (hors
+  /// appli) lorsque celui-ci n'a pas de compte Fripay.
+  final _validationCodeCtrl = TextEditingController();
 
   @override
   void dispose() {
     _amountCtrl.dispose();
     _phoneCtrl.dispose();
+    _validationCodeCtrl.dispose();
     super.dispose();
   }
 
   void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  /// Télécharge le QR affiché dans la galerie du téléphone (PNG haute
+  /// résolution) — prêt à envoyer via WhatsApp, etc.
+  Future<void> _download() async {
+    final qr = _qr;
+    if (qr == null || _downloading) return;
+    setState(() => _downloading = true);
+    try {
+      await QrDownloadService.instance.downloadToGallery(qr.qrCode);
+      if (!mounted) return;
+      _snack('QR téléchargé dans la galerie (album "FriPay").');
+    } on QrDownloadException catch (e) {
+      if (!mounted) return;
+      setState(() => _downloading = false);
+      _snack(e.message);
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _downloading = false);
+      _snack('Impossible de télécharger le QR pour le moment.');
+      return;
+    }
+    if (mounted) setState(() => _downloading = false);
+  }
 
   Future<void> _generate() async {
     final amount = int.tryParse(_amountCtrl.text) ?? 0;
@@ -71,6 +103,8 @@ class _SendQrScreenState extends State<SendQrScreen> {
       final qr = await OfflineQrService.instance.generate(
         amount: amount,
         recipientPhone: phone.isNotEmpty ? AuthService.normalizePhone(phone) : null,
+        // Le code de vérification est choisi par l'envoyeur (5 chiffres).
+        validationCode: _validationCodeCtrl.text.trim(),
       );
       if (!mounted) return;
       setState(() {
@@ -156,6 +190,20 @@ class _SendQrScreenState extends State<SendQrScreen> {
               decoration: const InputDecoration(hintText: '25 000'),
             ),
             const SizedBox(height: 16),
+            const Text('Code de vérification (5 chiffres)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _validationCodeCtrl,
+              keyboardType: TextInputType.number,
+              maxLength: 5,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                hintText: '04821',
+                counterText: '',
+                helperText: "Choisi par vous. À transmettre au receveur s'il n'a pas de compte Fripay.",
+              ),
+            ),
+            const SizedBox(height: 16),
             const Text('Numéro du receveur (optionnel)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
             const SizedBox(height: 8),
             TextField(
@@ -165,8 +213,8 @@ class _SendQrScreenState extends State<SendQrScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              "Si renseigné, l'appli détecte s'il a un compte FriPay. Sinon, un code à 5 chiffres "
-              "vous sera fourni à transmettre vous-même (WhatsApp, etc.).",
+              "Si renseigné, l'appli détecte s'il a un compte Fripay. Sans compte, il saisira ce code sur la page "
+              "web qui s'ouvrira au scan pour recevoir l'argent.",
               style: TextStyle(color: AppColors.mutedForeground, fontSize: 11.5, height: 1.4),
             ),
             if (_error != null) ...[
@@ -205,6 +253,10 @@ class _SendQrScreenState extends State<SendQrScreen> {
               child: QrImageView(
                 data: qr.qrCode,
                 size: qrSize,
+                // Correction d'erreur Q (25 %) : QR moins dense, beaucoup
+                // plus fiable au scan caméra ET au téléversement d'une
+                // photo (WhatsApp compresse fortement les images).
+                errorCorrectionLevel: QrErrorCorrectLevel.Q,
                 eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: AppColors.primaryDeep),
                 dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: AppColors.primaryDeep),
               ),
@@ -266,6 +318,13 @@ class _SendQrScreenState extends State<SendQrScreen> {
               runSpacing: 8,
               alignment: WrapAlignment.center,
               children: [
+                OutlinedButton.icon(
+                  onPressed: _downloading ? null : _download,
+                  icon: _downloading
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.download_rounded, size: 16),
+                  label: const Text('Télécharger'),
+                ),
                 OutlinedButton.icon(
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: qr.qrCode));

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../services/qr_image_decoder.dart';
 import '../../theme/app_colors.dart';
 
 /// Scanner de QR générique (caméra + upload galerie), partagé par les
@@ -57,9 +58,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
         if (mounted) setState(() => _uploading = false);
         return;
       }
-      final result = await _controller.analyzeImage(picked.path);
-      final barcodes = result?.barcodes ?? const <Barcode>[];
-      final value = barcodes.isNotEmpty ? barcodes.first.rawValue : null;
+      // Décodeur robuste : analyse native, puis recompositions (échelle,
+      // contraste, miroir) — les QR téléversés (photos WhatsApp) sont
+      // souvent trop compressés pour le décodage natif direct.
+      final value = await QrImageDecoder.instance.decode(picked.path);
       if (!mounted) return;
       if (value != null && value.isNotEmpty) {
         _returnCode(value);

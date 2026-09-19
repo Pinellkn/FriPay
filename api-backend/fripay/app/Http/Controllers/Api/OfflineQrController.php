@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\OfflineQrCode;
 use App\Models\OfflineQrEvent;
 use App\Models\PendingTransfer;
+use App\Rules\RecipientPhone;
 use App\Models\User;
 use App\Services\QrCryptoService;
 use App\Services\WalletService;
@@ -56,8 +57,9 @@ class OfflineQrController extends Controller
      *
      * @bodyParam amount integer required Montant en FCFA. Example: 5000
      * @bodyParam currency string Devise ISO 4217. Défaut: XOF. Example: XOF
-     * @bodyParam expires_minutes integer Durée de validité en minutes (5-60). Défaut: 60. Example: 30
+     * @bodyParam expires_minutes integer Durée de validité en minutes (5-43200). Facultatif — par défaut le QR n'expire JAMAIS (§6.b : retrait possible même 1 an plus tard). Example: 30
      * @bodyParam recipient_hint string|null Indice sur le destinataire (optionnel). Example: +22997000002
+     * @bodyParam external_validation_code string|null Code de vérification à 5 chiffres DÉFINI PAR L'ENVOYEUR (cahier des charges : c'est lui qui le choisit et le transmet lui-même au receveur). Requis si recipient_phone est fourni sans compte Fripay. Example: 04821
      *
      * @response status=201 {"qr_code":"...","uuid":"...","amount":5000,"currency":"XOF","expires_at":"...","status":"active"}
      * @response status=422 {"message":"The given data was invalid."}
@@ -74,8 +76,35 @@ class OfflineQrController extends Controller
             'expires_minutes' => 'nullable|integer|min:5|max:43200',
             'recipient_hint'  => 'nullable|string|max:100',
             // §6.a/e : numéro du receveur, utilisé pour détecter son compte.
-            'recipient_phone' => 'nullable|string|max:20',
+            'recipient_phone' => ['nullable', 'string', 'max:20', new RecipientPhone],
+            // Cahier des charges : le code de vérification est DÉFINI PAR
+            // L'ENVOYEUR (5 chiffres), pas généré par l'appli.
+            'external_validation_code' => ['nullable', 'string', 'regex:/^\d{5}$/'],
+        ], [
+            'external_validation_code.regex' => 'Le code de vérification doit être exactement 5 chiffres.',
         ]);
+
+        $recipientPhone = $validated['recipient_phone'] ?? null;
+        $senderValidationCode = isset($validated['external_validation_code'])
+            ? $validated['external_validation_code']
+            : null;
+
+        // Cohérence : quand le receveur (s'il est renseigné) n'a pas de
+        // compte Fripay, l'envoyeur DOIT fournir son code de vérification —
+        // c'est lui la clé du retrait sur la page web publique.
+        if ($recipientPhone !== null) {
+            $recipientUser = $this->findUserByAnyNumber($recipientPhone);
+            if ($recipientUser === null && $senderValidationCode === null) {
+                return response()->json([
+                    'type'    => 'VALIDATION_ERROR',
+                    'title'   => 'Erreur de validation',
+                    'status'  => 422,
+                    'detail'  => "Le receveur n'a pas de compte Fripay : vous devez définir un code de vérification à 5 chiffres (champ external_validation_code) que vous lui transmettrez vous-même.",
+                    'errors'  => ['external_validation_code' => ["Le code de vérification est requis quand le receveur n'a pas de compte Fripay."]],
+                    'request_id' => $request->header('X-Request-Id', ''),
+                ], 422);
+            }
+        }
 
         $userId = $request->user()->getKey();
         $amount = $validated['amount'];
@@ -84,11 +113,18 @@ class OfflineQrController extends Controller
             ? now()->addMinutes($validated['expires_minutes'])
             : null;
 
-        // Détection du compte du receveur (§6.e étape 1)
-        $recipientPhone = $validated['recipient_phone'] ?? null;
-        $recipientUser = $recipientPhone ? $this->findUserByAnyNumber($recipientPhone) : null;
+        // Détection du compte du receveur (§6.e étape 1) — déjà faite plus
+        // haut pour valider le code de l'envoyeur.
         $hasRecipientAccount = $recipientPhone ? ($recipientUser !== null) : null;
-        $externalCode = ($recipientPhone && !$hasRecipientAccount) ? $this->generateExternalCode() : null;
+        // Le code est celui de l'ENVOYEUR ; le générateur automatique ne
+        // sert que de filet si un jour l'appli ne le transmet pas.
+        $externalCode = ($recipientPhone && !$hasRecipientAccount)
+            ? ($senderValidationCode ?? $this->generateExternalCode())
+            : null;
+
+        // Numéro Fripay de l'ENVOYEUR : constituant du QR (cahier des
+        // charges) — le receveur voit qui lui a envoyé l'argent.
+        $senderFripayNumber = $request->user()->fripay_number;
 
         $keyPair = $this->crypto->generateKeyPair();
 
@@ -98,7 +134,11 @@ class OfflineQrController extends Controller
             $keyPair['secret_key'],
             $keyPair['public_key'],
             $validated['recipient_hint'] ?? $recipientPhone,
-            $expiresAt?->toIso8601String()
+            $expiresAt?->toIso8601String(),
+            'mpm',
+            null,
+            $senderFripayNumber,
+            $recipientUser?->fripay_number,
         );
 
         $idempotencyKey = Str::random(64);
@@ -182,9 +222,12 @@ class OfflineQrController extends Controller
             'expires_at'             => $expiresAt?->toIso8601String(),
             'status'                 => 'active',
             'has_recipient_account'  => $hasRecipientAccount,
-            // À transmettre par l'envoyeur hors appli (WhatsApp, etc.) si
-            // le receveur n'a pas de compte Fripay.
+            // Code de vérification défini par l'ENVOYEUR (cahier des
+            // charges) — à transmettre par ses soins hors appli si le
+            // receveur n'a pas de compte Fripay.
             'external_validation_code' => $externalCode,
+            // Numéro Fripay de l'envoyeur (constituant du QR).
+            'sender_fripay_number'   => $senderFripayNumber,
         ], 201);
     }
 

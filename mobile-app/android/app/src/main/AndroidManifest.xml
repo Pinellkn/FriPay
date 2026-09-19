@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Appels HTTP vers le backend local (gateway 8080, http non chiffré) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Enregistrement du QR téléchargé dans la galerie (Android 9 et
+         antérieurs seulement ; à partir d'Android 10, MediaStore n'exige
+         plus de permission pour y écrire ses propres images). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
 
     <application
         android:label="FriPay"

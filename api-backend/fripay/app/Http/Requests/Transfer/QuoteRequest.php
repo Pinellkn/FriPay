@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Transfer;
 
 use App\Http\Requests\BaseApiRequest;
+use App\Rules\RecipientPhone;
 use Illuminate\Validation\Rule;
 
 class QuoteRequest extends BaseApiRequest
@@ -18,7 +19,8 @@ class QuoteRequest extends BaseApiRequest
                     $query->where('user_id', auth()->id());
                 }),
             ],
-            'recipient_phone' => ['required', 'string', 'regex:/^\+22901\d{8}$/'],
+            // Numéro opérateur (+22901…) OU numéro Fripay (30 + 8 chiffres).
+            'recipient_phone' => ['required', 'string', new RecipientPhone],
             'amount' => ['required', 'numeric', 'min:100', 'max:5000000'],
         ];
     }

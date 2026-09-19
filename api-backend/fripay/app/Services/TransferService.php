@@ -33,6 +33,14 @@ class TransferService
      */
     public function calculateQuote(string $senderAccountId, string $recipientPhone, float $amount): array
     {
+        // Destinataire compte Fripay (numéro 30 + 8 chiffres) : virement
+        // interne wallet-à-wallet, sans corridor opérateur ni frais. Avant
+        // cette branche, calculateQuote levait OPERATOR_NOT_SUPPORTED pour
+        // tout numéro Fripay (le préfixe 30 n'est pas dans phone_prefixes).
+        if ($this->fripayNumbers->isFripayNumber($recipientPhone)) {
+            return $this->buildInternalQuote($senderAccountId, $recipientPhone, $amount);
+        }
+
         $recipientOperator = $this->operatorDetection->detect($recipientPhone);
 
         if (!$recipientOperator) {
@@ -84,6 +92,44 @@ class TransferService
             'rail'                     => $corridor->rail,
             'aggregator_provider'      => $corridor->aggregator_provider,
             'estimated_delivery_seconds' => $deliverySeconds,
+            'quote_token'              => $quoteToken,
+        ];
+    }
+
+    /**
+     * Quote pour un virement INTERNE Fripay (wallet -> wallet) : pas de
+     * corridor, pas de frais, réglé immédiatement à l'initiation.
+     */
+    private function buildInternalQuote(string $senderAccountId, string $recipientPhone, float $amount): array
+    {
+        if ($amount < 100 || $amount > 5000000) {
+            throw new \RuntimeException('AMOUNT_OUT_OF_RANGE');
+        }
+
+        $quoteToken = Str::random(32);
+
+        cache()->put('quote_' . $quoteToken, [
+            'sender_account_id'     => $senderAccountId,
+            'recipient_phone'       => $recipientPhone,
+            'amount'                => $amount,
+            'fee_amount'            => 0,
+            'total_debited'         => $amount,
+            'recipient_operator_id' => null,
+            'corridor_id'           => null,
+            'rail'                  => 'fripay_internal',
+            'aggregator_provider'   => null,
+            'expires_at'            => now()->addMinutes(2),
+        ], 180);
+
+        return [
+            'recipient_operator'       => 'FRIPAY',
+            'recipient_name'           => null,
+            'amount'                   => $amount,
+            'fee_amount'               => 0,
+            'total_debited'            => $amount,
+            'rail'                     => 'fripay_internal',
+            'aggregator_provider'      => null,
+            'estimated_delivery_seconds' => 5,
             'quote_token'              => $quoteToken,
         ];
     }
@@ -145,7 +191,9 @@ class TransferService
                 'sender_user_id'        => $senderUserId,
                 'sender_account_id'     => $senderAccountId,
                 'recipient_phone'       => $recipientPhone,
-                'recipient_operator_id' => $quote['recipient_operator_id'] ?? 1,
+                // null = virement interne Fripay (pas de corridor opérateur) ;
+                // la colonne est nullable et sans valeur par défaut.
+                'recipient_operator_id' => $quote['recipient_operator_id'] ?? null,
                 'amount'                => $amount,
                 'currency'              => 'XOF',
                 'fee_amount'            => $quote['fee_amount'],
@@ -245,6 +293,13 @@ class TransferService
      */
     private function dispatch(Transaction $transaction, string $recipientPhone): void
     {
+        // Virement interne Fripay : jamais de connecteur externe. Ne devrait
+        // pas arriver (initiate() règle ces transferts sur-le-champ), mais
+        // on blinde au cas où le flux serait réutilisé.
+        if ($transaction->rail_used === 'fripay_internal') {
+            return;
+        }
+
         $recipientOperator = $this->operatorDetection->detect($recipientPhone);
         $operatorCode = $recipientOperator ? $recipientOperator->code : 'UNKNOWN';
 

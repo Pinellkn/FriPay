@@ -23,6 +23,10 @@ dependencies:
   # depuis les contacts de l'appareil).
   flutter_contacts: ^1.1.9+2
   http: ^1.2.2
+  # Sauvegarde d'images dans la galerie (téléchargement du QR généré).
+  gal: ^2.3.0
+  # Recomposition d'images (retry de décodage des QR téléversés).
+  image: ^4.2.0
 
 dev_dependencies:
   flutter_test:
