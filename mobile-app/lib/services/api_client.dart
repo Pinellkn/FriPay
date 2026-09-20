@@ -179,11 +179,18 @@ class ApiClient {
     }
 
     if (decoded is Map<String, dynamic>) {
+      // Deux formes d'erreur coexistent côté backend :
+      // - standard : {type, title, detail} (erreurs de validation, etc.) ;
+      // - métier :   {error, message}   (QR, portefeuille...).
+      // On lit donc 'detail' PUIS 'message' en repli, sinon les erreurs
+      // métier n'affichent qu'un générique « Erreur » à l'utilisateur.
+      final detail = decoded['detail']?.toString() ??
+          (decoded['message']?.toString() ?? '');
       throw ApiException(
         status: response.statusCode,
-        type: decoded['type']?.toString() ?? 'UNKNOWN_ERROR',
+        type: decoded['type']?.toString() ?? decoded['error']?.toString() ?? 'UNKNOWN_ERROR',
         title: decoded['title']?.toString() ?? 'Erreur',
-        detail: decoded['detail']?.toString() ?? '',
+        detail: detail,
       );
     }
 

@@ -211,23 +211,38 @@ class MerchantQrController extends Controller
 
         if (!$qrCode) {
             return response()->json([
-                'valid' => false,
-                'error' => 'QR Code inconnu dans le système',
+                'valid'   => false,
+                'error'   => 'QR Code inconnu dans le système',
+                'message' => 'Ce QR Code est inconnu du système FriPay.',
             ], 422);
         }
 
         if (!$qrCode->isActive()) {
             return response()->json([
-                'valid' => false,
-                'error' => 'QR Code non actif (statut: ' . $qrCode->status . ')',
+                'valid'   => false,
+                'error'   => 'QR Code non actif (statut: ' . $qrCode->status . ')',
+                'message' => 'Ce QR Code n\'est plus actif (statut : ' . $qrCode->status . '). Demandez-en un nouveau à votre contacts.',
             ], 422);
         }
 
         // Vérifier que c'est bien un QR MPM
         if ($qrCode->qr_mode !== OfflineQrCode::MODE_MPM) {
             return response()->json([
-                'valid' => false,
-                'error' => 'Ce QR Code n\'est pas un QR MPM',
+                'valid'   => false,
+                'error'   => 'Ce QR Code n\'est pas un QR MPM',
+                'message' => "Ce QR Code n'est pas un QR de paiement FriPay.",
+            ], 422);
+        }
+
+        // Le scan de son PROPRE QR (ex. on relit l'affichage de sa boutique,
+        // ou on teste son QR personnel) n'est pas un paiement : on bloque
+        // ICI avec un message explicite plutôt que de laisser l'app afficher
+        // l'écran de paiement puis échouer en « Erreur » au /pay.
+        if ($qrCode->sender_user_id === $request->user()->getKey()) {
+            return response()->json([
+                'valid'   => false,
+                'error'   => 'SELF_QR',
+                'message' => "C'est votre propre QR FriPay : il sert à recevoir de l'argent, pas à vous payer vous-même.",
             ], 422);
         }
 
@@ -258,6 +273,14 @@ class MerchantQrController extends Controller
             'amount'   => $amount,
         ]);
 
+        // Nom affiché au payeur : le marchand enregistré si le QR lui est
+        // rattaché, sinon le nom du PROPRIÉTAIRE du QR (QR personnels MPM
+        // générés depuis l'écran « Recevoir » — pas de fiche marchand).
+        $owner = $merchant ?: \App\Models\User::find($qrCode->sender_user_id);
+        $displayName = $owner
+            ? trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? ''))
+            : null;
+
         return response()->json([
             'valid'         => true,
             'uuid'          => $uuid,
@@ -266,9 +289,7 @@ class MerchantQrController extends Controller
             'amount'        => $amount,
             'currency'      => $qrCode->currency,
             'description'   => $qrCode->description,
-            'merchant_name' => $merchant
-                ? trim(($merchant->first_name ?? '') . ' ' . ($merchant->last_name ?? ''))
-                : null,
+            'merchant_name' => $displayName !== '' ? $displayName : null,
             'expires_at'    => $qrCode->expires_at->toIso8601String(),
         ]);
     }

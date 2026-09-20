@@ -92,8 +92,18 @@ class QrDownloadService {
       dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Color(0xFF16332A)),
     );
 
+    // FOND BLANC OPAQUE OBLIGATOIRE : peint sans ça, le PNG du QR avait un
+    // arrière-plan TRANSPARENT (qr_flutter ne peint que les modules). Un QR
+    // sur fond transparent est illisible pour ML Kit et la plupart des
+    // décodeurs — c'est pourquoi l'upload du QR téléchargé échouait alors
+    // qu'une capture d'écran (QR posé sur le fond blanc de l'app) passait.
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawColor(const Color(0xFFFFFFFF), BlendMode.srcOver);
+    painter.paint(canvas, Size(size.toDouble(), size.toDouble()));
+    final pic = recorder.endRecording();
+
     // pixelRatio 1 : [size] est déjà la résolution finale en pixels.
-    final pic = painter.toPicture(size.toDouble());
     final image = await pic.toImage(size, size);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     pic.dispose();
