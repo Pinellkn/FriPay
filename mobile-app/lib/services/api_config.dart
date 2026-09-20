@@ -33,12 +33,16 @@ class ApiConfig {
   /// Vérifier avec `ipconfig` si l'adresse change — ou mieux, utiliser la
   /// surcharge runtime (Profil > Interface technique) qui évite de
   /// recompiler.
+  // NB : ne PAS remettre 127.0.0.1 ici — sur un téléphone physique ça
+  // pointe vers le TÉLÉPHONE lui-même, pas vers le PC (127.0.0.1 ne marche
+  // que sur émulateur/desktop). Si l'IP du PC change, mettre à jour cette
+  // valeur OU la surcharger dans l'app (Profil > Interface technique).
   static const String kLanHost = '192.168.0.8';
 
   static const int gatewayPort = 8080;
 
   // ---------------------------------------------------------------------------
-  // Surcharge runtime de l'adresse du serveur ("192.168.0.8" ou "host:port").
+  // Surcharge runtime de l'adresse du serveur ("127.0.0.1" ou "host:port").
   // ---------------------------------------------------------------------------
 
   static const _kOverrideKey = 'fripay_server_override';
