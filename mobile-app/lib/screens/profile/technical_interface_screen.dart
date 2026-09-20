@@ -5,7 +5,13 @@ import '../../services/api_config.dart';
 import '../../services/system_service.dart';
 import '../../theme/app_colors.dart';
 
-/// §8 - Interface technique : suivi des API (gateway) + préfixes réseau.
+/// §8 - Interface technique : adresse du serveur (modifiable SANS
+/// recompiler), suivi des microservices et préfixes réseau.
+///
+/// IMPORTANT : la carte « Serveur » est TOUJOURS affichée, même quand le
+/// backend est injoignable — c'est justement en situation d'échec qu'il
+/// faut pouvoir corriger l'adresse. Chaque section gère sa propre erreur
+/// (une section en échec n'empêche plus les autres de s'afficher).
 class TechnicalInterfaceScreen extends StatefulWidget {
   const TechnicalInterfaceScreen({super.key});
 
@@ -15,9 +21,10 @@ class TechnicalInterfaceScreen extends StatefulWidget {
 
 class _TechnicalInterfaceScreenState extends State<TechnicalInterfaceScreen> {
   bool _loading = true;
-  String? _error;
-  List<ServiceStatus> _services = [];
-  List<OperatorPrefixes> _operators = [];
+  List<ServiceStatus>? _services;
+  String? _servicesError;
+  List<OperatorPrefixes>? _operators;
+  String? _operatorsError;
 
   @override
   void initState() {
@@ -28,24 +35,50 @@ class _TechnicalInterfaceScreenState extends State<TechnicalInterfaceScreen> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _servicesError = null;
+      _operatorsError = null;
     });
+    // Les deux appels sont INDÉPENDANTS : l'échec de l'un (ex. backend
+    // injoignable) n'empêche pas l'affichage de l'autre ni de la carte
+    // Serveur. On collecte résultat OU erreur pour chaque section.
     try {
-      final results = await Future.wait([
-        SystemService.instance.fetchGatewayStatus(),
-        SystemService.instance.fetchNetworkPrefixes(),
-      ]);
-      setState(() {
-        _services = results[0] as List<ServiceStatus>;
-        _operators = results[1] as List<OperatorPrefixes>;
-        _loading = false;
-      });
+      final services = await SystemService.instance.fetchGatewayStatus();
+      if (!mounted) return;
+      setState(() => _services = services);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.toString();
-        _loading = false;
+        _services = const [];
+        _servicesError = _friendlyError(e);
       });
     }
+    try {
+      final operators = await SystemService.instance.fetchNetworkPrefixes();
+      if (!mounted) return;
+      setState(() => _operators = operators);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _operators = const [];
+        _operatorsError = _friendlyError(e);
+      });
+    }
+    if (!mounted) return;
+    setState(() => _loading = false);
+  }
+
+  /// Traduit les exceptions brutes (SocketException…) en message actionnable.
+  static String _friendlyError(Object e) {
+    final raw = e.toString();
+    if (raw.contains('SocketException') ||
+        raw.contains('Connection') ||
+        raw.contains('Failed host lookup') ||
+        raw.contains('timed out') ||
+        raw.contains('Connection refused')) {
+      return "Impossible de joindre le serveur. Vérifiez l'adresse ci-dessus, "
+          'que le backend tourne sur le PC et que le téléphone est sur le même Wi-Fi.';
+    }
+    return raw;
   }
 
   @override
@@ -53,32 +86,38 @@ class _TechnicalInterfaceScreenState extends State<TechnicalInterfaceScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Interface technique'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
+        actions: [IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))],
       ),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? _ErrorState(message: _error!, onRetry: _load)
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 30),
-                      children: [
-                        _SectionTitle('Serveur'),
-                        const SizedBox(height: 10),
-                        _ServerCard(onChanged: _load),
-                        const SizedBox(height: 26),
-                        _SectionTitle('Suivi des microservices'),
-                        const SizedBox(height: 10),
-                        ..._services.map((s) => _ServiceTile(service: s)),
-                        const SizedBox(height: 26),
-                        _SectionTitle('Préfixes réseau'),
-                        const SizedBox(height: 10),
-                        ..._operators.map((o) => _OperatorTile(operator: o)),
-                      ],
-                    ),
-                  ),
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 30),
+                  children: [
+                    // Toujours visible, même backend injoignable.
+                    _SectionTitle('Serveur'),
+                    const SizedBox(height: 10),
+                    _ServerCard(onChanged: _load),
+                    const SizedBox(height: 26),
+                    _SectionTitle('Suivi des microservices'),
+                    const SizedBox(height: 10),
+                    if (_servicesError != null)
+                      _SectionError(message: _servicesError!, onRetry: _load)
+                    else
+                      ...(_services ?? []).map((s) => _ServiceTile(service: s)),
+                    const SizedBox(height: 26),
+                    _SectionTitle('Préfixes réseau'),
+                    const SizedBox(height: 10),
+                    if (_operatorsError != null)
+                      _SectionError(message: _operatorsError!, onRetry: _load)
+                    else
+                      ...(_operators ?? []).map((o) => _OperatorTile(operator: o)),
+                  ],
+                ),
+              ),
       ),
     );
   }
@@ -198,6 +237,49 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
+/// Erreur de section COMPACTE : n'occupe pas tout l'écran, laisse les
+/// autres sections (et la carte Serveur) utilisables.
+class _SectionError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _SectionError({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.wifi_off_rounded, size: 18, color: AppColors.mutedForeground),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Information indisponible',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                ),
+                TextButton(
+                  onPressed: onRetry,
+                  child: const Text('Réessayer', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: AppColors.mutedForeground, fontSize: 11.5, height: 1.35),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ServiceTile extends StatelessWidget {
   final ServiceStatus service;
   const _ServiceTile({required this.service});
@@ -282,31 +364,6 @@ class _OperatorTile extends StatelessWidget {
                       ))
                   .toList(),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-  const _ErrorState({required this.message, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.wifi_off, size: 40, color: AppColors.mutedForeground),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.mutedForeground, fontSize: 12.5)),
-            const SizedBox(height: 14),
-            OutlinedButton(onPressed: onRetry, child: const Text('Réessayer')),
           ],
         ),
       ),
