@@ -92,6 +92,14 @@ class OfflineQrController extends Controller
         // Cohérence : quand le receveur (s'il est renseigné) n'a pas de
         // compte Fripay, l'envoyeur DOIT fournir son code de vérification —
         // c'est lui la clé du retrait sur la page web publique.
+        // FIX : $recipientUser n'est défini que DANS le bloc ci-dessous (si
+        // un numéro de receveur est fourni). Sans initialisation, la ligne
+        // "$recipientUser?->fripay_number" plus bas levait
+        // "Undefined variable $recipientUser" dès qu'on générait un QR
+        // SANS destinataire (cas le plus courant : QR montré à un tiers).
+        // NB : l'opérateur nullsafe ?-> protège contre null, pas contre
+        // une variable non définie.
+        $recipientUser = null;
         if ($recipientPhone !== null) {
             $recipientUser = $this->findUserByAnyNumber($recipientPhone);
             if ($recipientUser === null && $senderValidationCode === null) {
