@@ -68,14 +68,17 @@ class _QrScanScreenState extends State<QrScanScreen> {
       } else {
         setState(() {
           _uploading = false;
-          _error = 'Aucun QR détecté dans cette image. Réessayez.';
+          _error = 'Aucun QR détecté dans cette image. Utilisez une photo nette du QR '
+              '(ou une capture d\'écran), puis réessayez.';
         });
       }
     } catch (_) {
+      // Échec du picker (permission refusée, galerie indisponible…) — le
+      // décodage lui-même ne lève jamais d'exception (voir QrImageDecoder).
       if (!mounted) return;
       setState(() {
         _uploading = false;
-        _error = "Impossible de lire cette image. Vérifiez qu'il s'agit bien d'un QR FriPay.";
+        _error = "Impossible d'ouvrir la galerie. Autorisez l'accès aux photos puis réessayez.";
       });
     }
   }

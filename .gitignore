@@ -46,3 +46,6 @@ mobile-app/**/*.iws
 *.swp
 .DS_Store
 Thumbs.db
+
+# État interne de l'agent Codebuff
+.freebuff/

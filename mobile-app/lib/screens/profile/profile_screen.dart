@@ -280,21 +280,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 20),
             Text('Sécurité', style: GoogleFonts.sora(fontSize: 14, fontWeight: FontWeight.w700)),
             const SizedBox(height: 10),
+            // Bouton BIEN VISIBLE pour activer/désactiver le déverrouillage
+            // biométrique (Face ID / empreinte) — mis en avant en dehors du
+            // groupe de menu pour qu'il soit impossible à rater.
+            Container(
+              decoration: BoxDecoration(
+                gradient: _biometricEnabled ? null : AppColors.gradientEmerald,
+                color: _biometricEnabled ? AppColors.card : null,
+                borderRadius: BorderRadius.circular(16),
+                border: _biometricEnabled
+                    ? Border.all(color: AppColors.primary.withValues(alpha: 0.55), width: 1.2)
+                    : null,
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _toggleBiometric(!_biometricEnabled),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _biometricIcon,
+                        size: 24,
+                        color: _biometricEnabled ? AppColors.primary : Colors.white,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _biometricEnabled
+                                  ? 'Déverrouillage par $_biometricName activé'
+                                  : 'Activer le déverrouillage par $_biometricName',
+                              style: GoogleFonts.sora(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                                color: _biometricEnabled ? AppColors.foreground : Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              !_biometricSupported
+                                  ? 'Non disponible sur cet appareil'
+                                  : _biometricEnabled
+                                      ? 'Appuyez pour désactiver'
+                                      : 'Déverrouillez FriPay avec votre visage ou votre empreinte',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: _biometricEnabled
+                                    ? AppColors.mutedForeground
+                                    : Colors.white.withValues(alpha: 0.85),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        _biometricEnabled
+                            ? Icons.check_circle_rounded
+                            : Icons.arrow_forward_ios_rounded,
+                        size: _biometricEnabled ? 22 : 16,
+                        color: _biometricEnabled ? AppColors.primary : Colors.white.withValues(alpha: 0.85),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             _MenuGroup(items: [
               _MenuItem(
                 icon: Icons.lock_reset_rounded,
                 label: 'Modifier mon code PIN',
                 onTap: () => _push(context, const ChangePinScreen()),
-              ),
-              _MenuItem(
-                icon: _biometricIcon,
-                label: 'Déverrouillage par $_biometricName',
-                trailing: Switch.adaptive(
-                  value: _biometricEnabled,
-                  activeThumbColor: AppColors.primary,
-                  onChanged: _toggleBiometric,
-                ),
-                onTap: () => _toggleBiometric(!_biometricEnabled),
               ),
               _MenuItem(
                 icon: Icons.notifications_none_rounded,
@@ -347,8 +406,7 @@ class _MenuItem {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final Widget? trailing;
-  _MenuItem({required this.icon, required this.label, required this.onTap, this.trailing});
+  _MenuItem({required this.icon, required this.label, required this.onTap});
 }
 
 class _MenuGroup extends StatelessWidget {
@@ -384,7 +442,7 @@ class _MenuGroup extends StatelessWidget {
                   Icon(item.icon, size: 19, color: AppColors.primary),
                   const SizedBox(width: 14),
                   Expanded(child: Text(item.label, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
-                  item.trailing ?? const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.mutedForeground),
+                  const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.mutedForeground),
                 ],
               ),
             ),

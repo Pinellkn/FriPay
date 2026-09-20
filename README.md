@@ -82,4 +82,31 @@ Le "Point de vigilance" du fichier `Etat fonctionnel de Fripay.md` dit qu'il n'y
 
 ---
 
+## 5. Tester sur un téléphone physique SANS câble USB
+
+L'app mobile sur un téléphone réel doit joindre le backend qui tourne sur le PC, via le Wi-Fi partagé.
+
+### Une fois (déjà fait)
+- Le backend écoute sur toutes les interfaces : `start-fripay.ps1` lance `php -S 0.0.0.0:8080`.
+- Règle pare-feu « FriPay Backend » créée (ports 8000-8002 + 8080 autorisés, tous profils).
+- `mobile-app/lib/services/api_config.dart` → `kLanHost` = IP LAN du PC (vérifier avec `ipconfig`, section « Carte sans fil Wi-Fi » → « Adresse IPv4 »).
+- Pareil pour le téléphone : il doit être sur le MÊME Wi-Fi que le PC (pas la 4G).
+
+### À chaque nouvelle version de l'app
+1. Compiler l'APK : `cd mobile-app && flutter build apk --release`
+2. L'APK est ici : `mobile-app/build/app/outputs/flutter-apk/app-release.apk`
+3. L'envoyer au téléphone (WhatsApp « envoyer à un contact » à soi-même, Google Drive, câble une seule fois…) et l'installer (autoriser « installer des applis inconnues »).
+4. Sur le téléphone, vérifier avec Chrome que `http://IP_DU_PC:8080/api/v1/up` répond — si non, voir dépannage ci-dessous.
+
+### Dépannage « erreur réseau » sur le téléphone
+- `ipconfig` sur le PC : l'IP a changé ? → mettre à jour `kLanHost` dans `api_config.dart` et recompiler (étape 1-3).
+- Backend pas démarré ? → lancer `api-backend\start-fripay.ps1`, puis `netstat -an | findstr 8080` doit afficher `0.0.0.0:8080 LISTENING`.
+- Règle pare-feu absente (à faire en admin une seule fois) : `netsh advfirewall firewall add rule name="FriPay Backend" dir=in action=allow protocol=TCP localport=8000-8002,8080`
+- Alternative sans compilation après changement d'IP : réserver l'IP du PC dans la box (bail DHCP statique) pour ne plus jamais y revenir.
+
+### Variante : déboguer sans câble (adb Wi-Fi, Android 11+)
+Sur le téléphone : Options développeur → « Débogage sans fil » → « Associer l'appareil avec un code ». Sur le PC : `adb pair IP:PORT` (code affiché sur le téléphone), puis `adb connect IP:PORT` et enfin `flutter run --release` — plus besoin du câble ensuite.
+
+---
+
 **En une phrase** : tout ce qui reste **à l'intérieur** de FriPay (compte à compte, factures internes, historique, QR) fonctionne réellement de bout en bout ; tout ce qui doit **sortir** vers l'extérieur (réseaux MTN/Moov/Celtiis, vrais SMS, vrais emails, vraies factures) est câblé et prêt côté code, mais attend des identifiants/contrats réels avec les fournisseurs correspondants.
