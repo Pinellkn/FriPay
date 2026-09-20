@@ -99,10 +99,12 @@ L'app mobile sur un téléphone réel doit joindre le backend qui tourne sur le 
 4. Sur le téléphone, vérifier avec Chrome que `http://IP_DU_PC:8080/api/v1/up` répond — si non, voir dépannage ci-dessous.
 
 ### Dépannage « erreur réseau » sur le téléphone
-- `ipconfig` sur le PC : l'IP a changé ? → mettre à jour `kLanHost` dans `api_config.dart` et recompiler (étape 1-3).
+- **Changer l'IP SANS recompiler** : dans l'app, Profil > Interface technique > carte « Serveur » > saisir la nouvelle IP (ex. `192.168.0.8`) > Enregistrer. La surcharge est persistée et prioritaire sur la valeur compilée.
+- `ipconfig` sur le PC : l'IP a changé ? → soit la surcharge runtime ci-dessus, soit mettre à jour `kLanHost` dans `api_config.dart` et recompiler (étape 1-3).
 - Backend pas démarré ? → lancer `api-backend\start-fripay.ps1`, puis `netstat -an | findstr 8080` doit afficher `0.0.0.0:8080 LISTENING`.
 - Règle pare-feu absente (à faire en admin une seule fois) : `netsh advfirewall firewall add rule name="FriPay Backend" dir=in action=allow protocol=TCP localport=8000-8002,8080`
-- Alternative sans compilation après changement d'IP : réserver l'IP du PC dans la box (bail DHCP statique) pour ne plus jamais y revenir.
+- Si l'app affiche une URL avec une IP inattendue (ex. ancienne IP gravée) : l'APK installé sur le téléphone est ANCIEN — installer le dernier APK.
+- Alternative définitive : réserver l'IP du PC dans la box (bail DHCP statique) pour ne plus jamais y revenir.
 
 ### Variante : déboguer sans câble (adb Wi-Fi, Android 11+)
 Sur le téléphone : Options développeur → « Débogage sans fil » → « Associer l'appareil avec un code ». Sur le PC : `adb pair IP:PORT` (code affiché sur le téléphone), puis `adb connect IP:PORT` et enfin `flutter run --release` — plus besoin du câble ensuite.

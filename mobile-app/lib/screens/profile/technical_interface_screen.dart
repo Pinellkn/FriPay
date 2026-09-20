@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../services/api_config.dart';
 import '../../services/system_service.dart';
 import '../../theme/app_colors.dart';
 
@@ -64,6 +65,10 @@ class _TechnicalInterfaceScreenState extends State<TechnicalInterfaceScreen> {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(18, 14, 18, 30),
                       children: [
+                        _SectionTitle('Serveur'),
+                        const SizedBox(height: 10),
+                        _ServerCard(onChanged: _load),
+                        const SizedBox(height: 26),
                         _SectionTitle('Suivi des microservices'),
                         const SizedBox(height: 10),
                         ..._services.map((s) => _ServiceTile(service: s)),
@@ -74,6 +79,110 @@ class _TechnicalInterfaceScreenState extends State<TechnicalInterfaceScreen> {
                       ],
                     ),
                   ),
+      ),
+    );
+  }
+}
+
+/// Carte "Serveur" : affiche l'adresse actuellement utilisée et permet de
+/// la changer SANS recompiler (surcharge persistée dans SharedPreferences).
+/// Utile dès que la box change l'IP LAN du PC hébergeant le backend.
+class _ServerCard extends StatefulWidget {
+  final VoidCallback onChanged;
+  const _ServerCard({required this.onChanged});
+
+  @override
+  State<_ServerCard> createState() => _ServerCardState();
+}
+
+class _ServerCardState extends State<_ServerCard> {
+  Future<void> _edit() async {
+    final ctrl = TextEditingController(text: ApiConfig.serverOverride ?? ApiConfig.kLanHost);
+    String? error;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: const Text('Adresse du serveur'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'IP du PC qui héberge le backend (même réseau Wi-Fi). '
+                'Formats acceptés : 192.168.0.8 ou 192.168.0.8:8080.',
+                style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: ctrl,
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                decoration: const InputDecoration(hintText: '192.168.0.8:8080'),
+                onChanged: (_) => setDialogState(() => error = null),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text(error!, style: const TextStyle(color: AppColors.destructive, fontSize: 12, fontWeight: FontWeight.w600)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Annuler'),
+            ),
+            if (ApiConfig.serverOverride != null)
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Réinitialiser'),
+              ),
+            TextButton(
+              onPressed: () async {
+                try {
+                  await ApiConfig.setServerOverride(ctrl.text);
+                  if (ctx.mounted) Navigator.of(ctx).pop(true);
+                } on FormatException catch (e) {
+                  setDialogState(() => error = e.message);
+                }
+              },
+              child: const Text('Enregistrer', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Serveur : ${ApiConfig.baseUrl}')),
+      );
+      widget.onChanged();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOverride = ApiConfig.serverOverride != null;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(
+          hasOverride ? Icons.dns_rounded : Icons.computer_rounded,
+          color: AppColors.primary,
+        ),
+        title: Text(
+          ApiConfig.baseUrl,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+        ),
+        subtitle: Text(
+          hasOverride
+              ? 'Adresse personnalisée — appuyez pour modifier'
+              : 'Adresse par défaut — appuyez pour la changer sans recompiler',
+          style: const TextStyle(color: AppColors.mutedForeground, fontSize: 11.5),
+        ),
+        trailing: const Icon(Icons.edit_rounded, size: 18, color: AppColors.mutedForeground),
+        onTap: _edit,
       ),
     );
   }

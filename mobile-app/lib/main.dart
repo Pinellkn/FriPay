@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'screens/splash/splash_screen.dart';
+import 'services/api_config.dart';
 import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
@@ -14,6 +15,10 @@ void main() async {
   // Cette exception n'est pas une ApiException donc elle atterrit dans le
   // catch générique de l'écran -> "Une erreur est survenue.".
   await initializeDateFormatting('fr_FR', null);
+  // Charge la surcharge d'adresse serveur (Profil > Interface technique)
+  // AVANT toute requête : permet de changer l'IP du PC hébergeant le
+  // backend sans recompiler l'APK (l'IP LAN change en DHCP).
+  await ApiConfig.loadOverride();
   // Prépare le canal de notifications système et demande la permission
   // (obligatoire à partir d'Android 13) avant l'affichage du splash.
   await NotificationService.instance.init();
