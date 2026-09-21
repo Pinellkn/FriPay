@@ -43,3 +43,11 @@ Route::get('/__gateway/status', function (Request $request) {
 Route::get('/claim/{uuid}', function (string $uuid) {
     return view('claim.show', ['uuid' => $uuid]);
 })->name('claim.show');
+
+// FriPay Link : page web publique de PAIEMENT d'un lien partageable.
+// Le payeur externe (sans compte FriPay) y voit le montant verrouillé et le
+// créateur (nom partiel), choisit son opérateur et paie via FeexPay. La page
+// consomme GET/POST /api/v1/payment-links/{token}(/pay)(/status) en JS.
+Route::get('/pay/{token}', function (string $token) {
+    return view('pay.link', ['token' => $token]);
+})->name('pay.link');

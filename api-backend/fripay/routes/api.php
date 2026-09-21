@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\LinkedAccountController;
 use App\Http\Controllers\Api\MerchantQrController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OfflineQrController;
+use App\Http\Controllers\Api\PaymentLinkController;
 use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TopupController;
 use App\Http\Controllers\Api\TransferController;
@@ -93,6 +94,10 @@ Route::prefix('v1')->group(function () {
         Route::get('/wallet/topup/feexpay', [TopupController::class, 'index']);
         Route::get('/wallet/topup/feexpay/{topupId}', [TopupController::class, 'status']);
 
+        // FriPay Link — création et suivi par le créateur (auth)
+        Route::post('/payment-links', [PaymentLinkController::class, 'store']);
+        Route::get('/payment-links', [PaymentLinkController::class, 'index']);
+
         Route::post('/transfers/quote', [TransferController::class, 'quote']);
         Route::post('/transfers', [TransferController::class, 'initiate']);
         Route::get('/transfers/{transaction_id}', [TransferController::class, 'show']);
@@ -135,6 +140,15 @@ Route::prefix('v1')->group(function () {
     Route::middleware('throttle:qr-external-claim')->group(function () {
         Route::get('/qr/external/{uuid}', [ExternalClaimController::class, 'lookup']);
         Route::post('/qr/external/{uuid}/claim', [ExternalClaimController::class, 'claim']);
+    });
+
+    // FriPay Link — routes PUBLIques (payeur externe sans compte FriPay)
+    // Rate limité par IP : la consultation et le paiement ne demandent pas
+    // d'authentification.
+    Route::middleware('throttle:qr-external-claim')->group(function () {
+        Route::get('/payment-links/{token}', [PaymentLinkController::class, 'lookup']);
+        Route::post('/payment-links/{token}/pay', [PaymentLinkController::class, 'pay']);
+        Route::get('/payment-links/{token}/status', [PaymentLinkController::class, 'status']);
     });
 
     // QR Paiements Marchand (CPM / MPM)

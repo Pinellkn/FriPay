@@ -202,18 +202,32 @@ class ExternalClaimController extends Controller
      */
     private function cancelAndRefund(OfflineQrCode $qr): array
     {
+        // Source de vérité = LEDGER : on rembourse uniquement ce qui a
+        // réellement été retenu (débit 'qr_transfer_hold') pour ce QR.
+        // Aucun hold => aucune création d'argent.
+        $heldAmount = $this->wallets->netMovementForQr((int) $qr->id);
+
         $qr->update([
             'status'      => OfflineQrCode::STATUS_CANCELLED,
-            'refunded_at' => now(),
+            'refunded_at' => $heldAmount > 0 ? now() : $qr->refunded_at,
         ]);
 
-        $this->wallets->credit(
-            $qr->sender_user_id,
-            (float) $qr->amount,
-            null,
-            'qr_external_claim_failed_refund',
-            "Remboursement QR argent — 3 tentatives de retrait externe échouées"
-        );
+        if ($heldAmount > 0) {
+            $this->wallets->credit(
+                $qr->sender_user_id,
+                $heldAmount,
+                null,
+                'qr_external_claim_failed_refund',
+                "Remboursement QR argent — 3 tentatives de retrait externe échouées",
+                (int) $qr->id
+            );
+        } else {
+            Log::info('Annulation QR externe sans remboursement — aucun hold ledger', [
+                'uuid'   => $qr->uuid,
+                'sender' => $qr->sender_user_id,
+                'amount' => $qr->amount,
+            ]);
+        }
 
         // Alerte à l'ENVOYEUR (cahier des charges) : après 3 échecs du code
         // de vérification, la transaction est annulée et il est prévenu

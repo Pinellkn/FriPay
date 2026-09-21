@@ -22,8 +22,9 @@ class QrDownloadService {
   /// la galerie par défaut ("Pictures").
   ///
   /// [data] : contenu JSON signé du QR (qr.qrCode).
-  /// [size] : taille cible du PNG en pixels logiques (défaut 1024 —
-  /// haute résolution pour un scan fiable même après transfert WhatsApp).
+  /// [size] : taille cible du PNG en pixels (défaut 1024 — haute
+  /// résolution pour un scan fiable même après transfert WhatsApp). Le QR
+  /// est centré avec une quiet zone de 4 modules (marge blanche obligatoire).
   Future<void> downloadToGallery(String data, {int size = 1024}) async {
     final bytes = await _renderPng(data, size);
     try {
@@ -82,15 +83,29 @@ class QrDownloadService {
   }
 
   Future<Uint8List> _renderPng(String data, int size) async {
-    final painter = QrPainter(
-      data: data,
-      version: QrVersions.auto,
-      // ECC Q (25 %) : même niveau que l'affichage à l'écran — le PNG
-      // téléversé reste lisible même après compression WhatsApp.
-      errorCorrectionLevel: QrErrorCorrectLevel.Q,
+    // QrCode construit en amont pour connaître le nombre exact de modules
+    // (nécessaire pour dimensionner la QUIET ZONE en modules, comme l'exige
+    // la spec ISO/IEC 18004).
+    final qr = QrCode.fromData(data: data, errorCorrectLevel: QrErrorCorrectLevel.Q);
+    final painter = QrPainter.withQr(
+      qr: qr,
+      // gapless : supprime l'écart anti-aliasing d'1px entre modules —
+      // indispensable pour un décodage natif (ML Kit) rapide et fiable.
+      gapless: true,
       eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Color(0xFF16332A)),
       dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Color(0xFF16332A)),
     );
+
+    // QUIET ZONE DE 4 MODULES (spec QR) : qr_flutter peint le QR sur TOUTE
+    // la surface fournie, sans aucune marge. Un QR collé aux bords de
+    // l'image ralentit ou fait échouer le décodage — c'est exactement la
+    // différence avec une capture d'écran, qui inclut naturellement le
+    // fond blanc de l'app autour du QR.
+    const quietModules = 4;
+    final totalModules = qr.moduleCount + quietModules * 2;
+    final modulePx = size / totalModules;
+    final qrSize = modulePx * qr.moduleCount;
+    final quietPx = modulePx * quietModules;
 
     // FOND BLANC OPAQUE OBLIGATOIRE : peint sans ça, le PNG du QR avait un
     // arrière-plan TRANSPARENT (qr_flutter ne peint que les modules). Un QR
@@ -100,7 +115,8 @@ class QrDownloadService {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     canvas.drawColor(const Color(0xFFFFFFFF), BlendMode.srcOver);
-    painter.paint(canvas, Size(size.toDouble(), size.toDouble()));
+    canvas.translate(quietPx, quietPx);
+    painter.paint(canvas, Size(qrSize, qrSize));
     final pic = recorder.endRecording();
 
     // pixelRatio 1 : [size] est déjà la résolution finale en pixels.

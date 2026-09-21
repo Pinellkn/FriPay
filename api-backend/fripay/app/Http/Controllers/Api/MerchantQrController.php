@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use App\Models\TransactionStatusHistory;
 use App\Services\OperatorDetectionService;
 use App\Services\QrCryptoService;
+use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,7 @@ class MerchantQrController extends Controller
     public function __construct(
         private QrCryptoService $crypto,
         private OperatorDetectionService $operatorDetection,
+        private WalletService $wallets,
     ) {}
 
     // ═══════════════════════════════════════════════════════════════════
@@ -322,7 +324,12 @@ class MerchantQrController extends Controller
         $uuid   = $validated['uuid'];
 
         // Lock + vérification + création transaction — TOUT dans une seule DB transaction
-        $result = DB::transaction(function () use ($uuid, $userId, $validated) {
+        // INSUFFICIENT_FUNDS est levée par WalletService::debit — on la
+        // convertit en erreur métier : la DB transaction est rollbackée
+        // (ni transaction, ni event, ni mouvement ledger) et le QR reste
+        // réutilisable.
+        try {
+            $result = DB::transaction(function () use ($uuid, $userId, $validated) {
             $qrCode = OfflineQrCode::where('uuid', $uuid)
                 ->lockForUpdate()
                 ->first();
@@ -438,6 +445,56 @@ class MerchantQrController extends Controller
                 'note'             => 'Paiement QR MPM initié',
             ]);
 
+            // ── Mouvements wallet (BUG 1 corrigé) ──────────────────
+            // Avant : la transaction restait 'pending' et l'argent ne
+            // bougeait JAMAIS (aucun connecteur/webhook ne complétait le
+            // flux qr_mpm) — le payeur voyait son solde intact.
+            //
+            // Destinataire compte Fripay (QR généré depuis l'écran
+            // « Recevoir » de l'appli) : virement interne wallet-à-wallet
+            // réglé immédiatement — débit du payeur + crédit du
+            // bénéficiaire, tous deux tracés dans le ledger
+            // (WalletLedgerEntry) avec le même transaction_id.
+            //
+            // Destinataire externe (vrai marchand mobile money) : le solde
+            // du payeur est réservé par le débit ; le crédit vers son
+            // compte opérateur restera déclenché par le webhook de
+            // confirmation du connecteur (source de vérité externe).
+            $recipientUser = $qrCode->merchant_user_id !== null
+                ? \App\Models\User::find($qrCode->merchant_user_id)
+                : null;
+
+            if ($recipientUser !== null) {
+                $this->wallets->debit(
+                    $userId,
+                    (float) $totalDebited,
+                    $transaction->id,
+                    'qr_mpm_payment',
+                    "Paiement QR MPM {$transaction->reference}"
+                );
+
+                // Le bénéficiaire touche le montant net (les frais éventuels
+                // restent acquis à la plateforme, même convention que les
+                // virements internes de TransferService).
+                $this->wallets->credit(
+                    $recipientUser->id,
+                    (float) $amount,
+                    $transaction->id,
+                    'qr_mpm_received',
+                    "Réception paiement QR MPM {$transaction->reference}"
+                );
+
+                $transaction->update(['status' => 'completed', 'completed_at' => now()]);
+            } else {
+                $this->wallets->debit(
+                    $userId,
+                    (float) $totalDebited,
+                    $transaction->id,
+                    'qr_mpm_payment',
+                    "Paiement QR MPM {$transaction->reference}"
+                );
+            }
+
             return [
                 'success'     => true,
                 'transaction' => $transaction,
@@ -445,7 +502,14 @@ class MerchantQrController extends Controller
                 'fee_amount'  => $feeAmount,
                 'total'       => $totalDebited,
             ];
-        });
+        }, 2);
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === 'INSUFFICIENT_FUNDS') {
+                return response()->json(['error' => 'INSUFFICIENT_FUNDS', 'message' => 'Solde insuffisant pour ce paiement.'], 422);
+            }
+
+            throw $e;
+        }
 
         if (isset($result['error'])) {
             Log::warning('QR MPM paiement échoué', [
@@ -485,7 +549,7 @@ class MerchantQrController extends Controller
             'fee_amount'     => $result['fee_amount'],
             'total_debited'  => $result['total'],
             'currency'       => $transaction->currency,
-            'status'         => 'pending',
+            'status'         => $transaction->status,
         ], 202);
     }
 
@@ -710,7 +774,10 @@ class MerchantQrController extends Controller
         $merchantId = $request->user()->getKey();
         $uuid       = $validated['uuid'];
 
-        $result = DB::transaction(function () use ($uuid, $merchantId, $validated) {
+        // Même garde que payMpm : INSUFFICIENT_FUNDS (levée par
+        // WalletService::debit) => 422 métier, rollback complet.
+        try {
+            $result = DB::transaction(function () use ($uuid, $merchantId, $validated) {
             $qrCode = OfflineQrCode::where('uuid', $uuid)
                 ->lockForUpdate()
                 ->first();
@@ -821,6 +888,39 @@ class MerchantQrController extends Controller
                 'note'             => 'Paiement QR CPM initié par le marchand',
             ]);
 
+            // ── Mouvements wallet (BUG 1 corrigé) ──────────────────
+            // Même correctif que payMpm : avant, aucun mouvement wallet —
+            // l'argent ne bougeait jamais. Ici le client (qrCode->sender)
+            // est débité, le marchand est l'utilisateur qui encaisse.
+            $customerUser = \App\Models\User::find($qrCode->sender_user_id);
+
+            if ($customerUser !== null) {
+                $this->wallets->debit(
+                    $qrCode->sender_user_id,
+                    (float) $totalDebited,
+                    $transaction->id,
+                    'qr_cpm_payment',
+                    "Paiement QR CPM {$transaction->reference}"
+                );
+
+                // Si le marchand est un utilisateur Fripay : règlement
+                // interne immédiat (crédit net, frais acquis à la
+                // plateforme). Sinon, le webhook de confirmation du
+                // connecteur déclenchera le règlement externe.
+                $merchantUser = \App\Models\User::find($merchantId);
+                if ($merchantUser !== null) {
+                    $this->wallets->credit(
+                        $merchantId,
+                        (float) $amount,
+                        $transaction->id,
+                        'qr_cpm_received',
+                        "Réception paiement QR CPM {$transaction->reference}"
+                    );
+
+                    $transaction->update(['status' => 'completed', 'completed_at' => now()]);
+                }
+            }
+
             return [
                 'success'     => true,
                 'transaction' => $transaction,
@@ -829,6 +929,13 @@ class MerchantQrController extends Controller
                 'total'       => $totalDebited,
             ];
         });
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === 'INSUFFICIENT_FUNDS') {
+                return response()->json(['error' => 'INSUFFICIENT_FUNDS', 'message' => 'Solde insuffisant pour ce paiement.'], 422);
+            }
+
+            throw $e;
+        }
 
         if (isset($result['error'])) {
             Log::warning('QR CPM encaissement échoué', [
@@ -841,10 +948,12 @@ class MerchantQrController extends Controller
                 'NOT_FOUND'           => response()->json(['error' => 'QR_NOT_FOUND', 'message' => 'QR Code inconnu'], 404),
                 'NOT_PAYABLE'         => response()->json(['error' => 'QR_NOT_PAYABLE', 'message' => 'QR Code non payable'], 422),
                 'NOT_CPM'             => response()->json(['error' => 'NOT_CPM', 'message' => 'Ce QR n\'est pas un QR CPM'], 422),
-                'SELF_CHARGE'         => response()->json(['error' => 'SELF_CHARGE', 'message' => 'Vous ne pouvez pas encaisser votre propre QR'], 422),
-                'INVALID_PIN'         => response()->json(['error' => 'INVALID_PIN', 'message' => 'Code PIN incorrect'], 401),
-                'MISSING_SENDER_ACCOUNT' => response()->json(['error' => 'MISSING_SENDER_ACCOUNT', 'message' => 'Le compte du client n\'est pas défini dans le QR'], 422),
-                default               => response()->json(['error' => 'UNKNOWN'], 500),
+            'SELF_CHARGE'         => response()->json(['error' => 'SELF_CHARGE', 'message' => 'Vous ne pouvez pas encaisser votre propre QR'], 422),
+            'INVALID_PIN'         => response()->json(['error' => 'INVALID_PIN', 'message' => 'Code PIN incorrect'], 401),
+            'MISSING_SENDER_ACCOUNT' => response()->json(['error' => 'MISSING_SENDER_ACCOUNT', 'message' => 'Le compte du client n\'est pas défini dans le QR'], 422),
+            'INSUFFICIENT_FUNDS'  => response()->json(['error' => 'INSUFFICIENT_FUNDS', 'message' => 'Solde insuffisant pour ce paiement.'], 422),
+            'AMOUNT_MISMATCH'     => response()->json(['error' => 'AMOUNT_MISMATCH', 'message' => 'Le montant ne correspond pas au QR Code'], 422),
+            default               => response()->json(['error' => 'UNKNOWN'], 500),
             };
         }
 

@@ -134,6 +134,10 @@ class OfflineQrController extends Controller
         // charges) — le receveur voit qui lui a envoyé l'argent.
         $senderFripayNumber = $request->user()->fripay_number;
 
+        // ID interne du QR (offline_qr_codes.id) : sert de transaction_id
+        // pour l'écriture ledger du hold, AVANT la création de la ligne.
+        $qrId = (string) Str::uuid();
+
         $keyPair = $this->crypto->generateKeyPair();
 
         $signed = $this->crypto->createSignedPayload(
@@ -153,19 +157,21 @@ class OfflineQrController extends Controller
 
         $qrCode = DB::transaction(function () use (
             $userId, $amount, $currency, $keyPair, $signed, $expiresAt,
-            $idempotencyKey, $recipientPhone, $recipientUser, $hasRecipientAccount, $externalCode
+            $idempotencyKey, $recipientPhone, $recipientUser, $hasRecipientAccount, $externalCode, $qrId
         ) {
             // Réservation réelle des fonds — l'argent quitte le wallet de
             // l'envoyeur dès la génération (§6 : le QR "contient" l'argent).
-            $this->wallets->debit(
-                $userId,
-                (float) $amount,
-                null,
-                'qr_transfer_hold',
-                "Réservation QR argent"
-            );
-
+            // transaction_id = QR : le hold est traçable dans le ledger via
+            // l'UUID du QR (WalletLedgerEntry.transaction_id), ce qui permet
+            // aux remboursements (revoke / annulation externe) de ne
+            // restituer que ce qui a RÉELLEMENT été débité pour CE QR —
+            // source de vérité = ledger, jamais un montant recalculé.
+            // NB : le QR est créé AVANT le débit — la FK
+            // wallet_ledger_entries.transaction_id → offline_qr_codes.id
+            // exige que la ligne cible existe déjà (SQLite vérifie les FK
+            // immédiatement, sans contraintes différées).
             $qr = OfflineQrCode::create([
+                'id'                        => $qrId,
                 'uuid'                      => $signed['uuid'],
                 'sender_user_id'            => $userId,
                 'amount'                    => $amount,
@@ -182,6 +188,15 @@ class OfflineQrController extends Controller
                 'external_validation_code'  => $externalCode,
                 'held_at'                   => now(),
             ]);
+
+            $this->wallets->debit(
+                $userId,
+                (float) $amount,
+                null,
+                'qr_transfer_hold',
+                "Réservation QR argent",
+                (int) $qr->id
+            );
 
             OfflineQrEvent::create([
                 'offline_qr_code_id' => $qr->id,
@@ -452,12 +467,15 @@ class OfflineQrController extends Controller
             // §7 — l'encaissement doit réellement créditer le wallet du
             // receveur (bug corrigé : le statut changeait mais l'argent
             // débité à la génération n'était jamais crédité côté receveur).
+            // transaction_id = QR : trace le crédit dans le ledger et
+            // neutralise le hold dans le calcul net (netMovementForTransaction).
             $this->wallets->credit(
                 $userId,
                 (float) $qrCode->amount,
                 null,
                 'qr_redeemed',
-                'Encaissement QR argent — de ' . $qrCode->sender_user_id
+                'Encaissement QR argent — de ' . $qrCode->sender_user_id,
+                (int) $qrCode->id
             );
 
             OfflineQrEvent::create([
@@ -627,21 +645,34 @@ class OfflineQrController extends Controller
                 return ['error' => 'NOT_REVOCABLE'];
             }
 
+            // Source de vérité = LEDGER : on ne recrédite l'expéditeur que
+            // le montant réellement retenu (débit 'qr_transfer_hold') pour
+            // CE QR. Si aucun hold n'existe (QR ancien généré avant que la
+            // génération ne réserve les fonds, ou écriture perdue), on ne
+            // crée PAS d'argent : on annule juste le statut.
+            $heldAmount = $this->wallets->netMovementForQr((int) $qrCode->id);
+
             $qrCode->update([
                 'status'      => OfflineQrCode::STATUS_REVOKED,
-                'refunded_at' => now(),
+                'refunded_at' => $heldAmount > 0 ? now() : $qrCode->refunded_at,
             ]);
 
-            // §7 — même bug que redeem() : la révocation changeait le statut
-            // et promettait un "refund" dans les métadonnées de l'event,
-            // sans jamais recréditer l'expéditeur. Corrigé.
-            $this->wallets->credit(
-                $userId,
-                (float) $qrCode->amount,
-                null,
-                'qr_revoked_refund',
-                'Remboursement QR argent — annulation par expéditeur'
-            );
+            if ($heldAmount > 0) {
+                $this->wallets->credit(
+                    $qrCode->sender_user_id,
+                    $heldAmount,
+                    null,
+                    'qr_revoked_refund',
+                    'Remboursement QR argent — annulation par expéditeur',
+                    (int) $qrCode->id
+                );
+            } else {
+                Log::info('Révocation QR sans remboursement — aucun hold ledger', [
+                    'uuid' => $qrCode->uuid,
+                    'sender' => $qrCode->sender_user_id,
+                    'amount' => $qrCode->amount,
+                ]);
+            }
 
             OfflineQrEvent::create([
                 'offline_qr_code_id' => $qrCode->id,

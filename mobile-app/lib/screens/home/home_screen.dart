@@ -20,6 +20,7 @@ import '../../widgets/fripay_refresh.dart';
 import '../bills/bills_screen.dart';
 import '../complaints/complaints_screen.dart';
 import '../history/history_screen.dart';
+import '../link/payment_link_screen.dart';
 import '../profile/notifications_screen.dart';
 import '../receive/receive_screen.dart';
 import '../recharge/recharge_screen.dart';
@@ -211,6 +212,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 QuickActionButton(icon: Icons.qr_code_rounded, label: 'Recevoir', onTap: () => _push(context, const ReceiveScreen())),
                 QuickActionButton(icon: Icons.add_card_rounded, label: 'Recharge', onTap: () => _push(context, const RechargeScreen())),
                 QuickActionButton(icon: Icons.receipt_long_rounded, label: 'Factures', onTap: () => _push(context, const BillsScreen())),
+                QuickActionButton(
+                  icon: Icons.link_rounded,
+                  label: 'FriLink',
+                  onTap: () => _push(context, const PaymentLinkScreen()),
+                ),
                 QuickActionButton(
                   icon: Icons.account_balance_wallet_rounded,
                   label: 'Portefeuilles',

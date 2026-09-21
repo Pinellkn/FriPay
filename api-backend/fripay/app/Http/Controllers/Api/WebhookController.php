@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Transaction;
 use App\Models\TransactionStatusHistory;
 use App\Models\WebhookEvent;
+use App\Services\PaymentLinkService;
 use App\Services\TopupService;
 use App\Services\TransferService;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +18,7 @@ class WebhookController extends Controller
     public function __construct(
         private readonly TransferService $transferService,
         private readonly TopupService $topupService,
+        private readonly PaymentLinkService $paymentLinkService,
     ) {}
 
     /**
@@ -53,7 +55,28 @@ class WebhookController extends Controller
 
         // Source de vérité : on re-interroge l'API FeexPay plutôt que de
         // faire confiance au corps du callback (pas de signature disponible).
+        // Deux objets métier peuvent être concernés : recharge (topup) ou
+        // paiement d'un FriPay Link.
         $topup = $this->topupService->refreshStatusByProviderReference($providerReference);
+
+        if (! $topup) {
+            // Pas un topup : peut-être le paiement d'un FriPay Link. La
+            // vérification API FeexPay reste la source de vérité — un
+            // callback forgé ne peut pas créditer un wallet.
+            $link = $this->paymentLinkService->confirmByProviderReference($providerReference);
+
+            if ($link) {
+                $webhookEvent->update(['processed' => true]);
+
+                Log::info('Webhook FeexPay traité (FriPay Link)', [
+                    'reference' => $providerReference,
+                    'link'      => $link->id,
+                    'status'    => $link->status,
+                ]);
+
+                return response()->json(['status' => 'ok'], 200);
+            }
+        }
 
         $webhookEvent->update(['processed' => true]);
 
@@ -192,6 +215,16 @@ class WebhookController extends Controller
         };
 
         if ($newStatus) {
+            // Garde d'idempotence : une transaction déjà finalisée
+            // (succeeded/failed/cancelled/completed) ne change plus d'état.
+            // Sans cette garde, un webhook retardé sur une transaction déjà
+            // annulée la passait en 'failed' ET déclenchait refundWallet(),
+            // créant un crédit sans débit correspondant.
+            if (in_array($transaction->status, ['succeeded', 'failed', 'cancelled', 'completed'], true)) {
+                $event->update(['processing_error' => "Transaction already finalized (status: {$transaction->status}) — webhook ignored"]);
+                return;
+            }
+
             $previousStatus = $transaction->status;
             $transaction->update([
                 'status'             => $newStatus,
@@ -277,6 +310,14 @@ class WebhookController extends Controller
         };
 
         if ($newStatus) {
+            // Garde d'idempotence (cf. processMtnWebhook) : ne jamais
+            // re-finaliser une transaction déjà terminée, ni rembourser
+            // une seconde fois.
+            if (in_array($transaction->status, ['succeeded', 'failed', 'cancelled', 'completed'], true)) {
+                $event->update(['processing_error' => "Transaction already finalized (status: {$transaction->status}) — webhook ignored"]);
+                return;
+            }
+
             $previousStatus = $transaction->status;
             $transaction->update([
                 'status' => $newStatus,

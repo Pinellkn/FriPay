@@ -542,23 +542,41 @@ class TransferService
     }
 
     /**
-     * Recrédite le wallet de l'expéditeur du montant total débité à
-     * l'initiation. Idempotent : ne rembourse qu'une fois par transaction
-     * (vérifie qu'aucune écriture de remboursement n'existe déjà).
+     * Recrédite le wallet de l'expéditeur l'exact inverse du mouvement
+     * enregistré dans le LEDGER (WalletLedgerEntry) pour cette transaction.
+     *
+     * Le ledger est la source de vérité : on ne rembourse JAMAIS un montant
+     * recalculé (total_debited) mais le net réellement débité. Garanties :
+     * - aucun débit au ledger pour cette transaction => AUCUN crédit (on ne
+     *   crée pas d'argent — c'était le bug "remboursement aveugle" : une
+     *   annulation ajoutait total_debited alors que rien n'avait été débité,
+     *   ex. solde 10000 -> 11000 après annulation d'un paiement de 100) ;
+     * - débit partiel / double écriture => on rembourse le net exact, ce qui
+     *   ramène le solde à sa valeur d'avant initiation ;
+     * - remboursement déjà enregistré => net = 0 => appel idempotent.
      */
     public function refundWallet(Transaction $transaction, string $reason): void
     {
-        $alreadyRefunded = \App\Models\WalletLedgerEntry::where('transaction_id', $transaction->id)
-            ->where('type', 'credit')
-            ->exists();
+        $wallet = $this->wallets->getOrCreate($transaction->sender_user_id);
 
-        if ($alreadyRefunded) {
+        $netDebited = $this->wallets->netMovementForTransaction($wallet->id, $transaction->id);
+
+        if ($netDebited <= 0) {
+            // Rien n'a été débité pour cette transaction (ou déjà remboursé) :
+            // on annule le statut mais on ne crée PAS d'argent.
+            Log::info('Remboursement ignoré — aucun débit ledger correspondant', [
+                'transaction' => $transaction->id,
+                'reference'   => $transaction->reference,
+                'net'         => $netDebited,
+                'reason'      => $reason,
+            ]);
+
             return;
         }
 
         $this->wallets->credit(
             $transaction->sender_user_id,
-            (float) $transaction->total_debited,
+            $netDebited,
             $transaction->id,
             $reason,
             "Remboursement transfert {$transaction->reference}"
@@ -600,20 +618,135 @@ class TransferService
 
     /**
      * Cancel a transaction if possible.
+     *
+     * Deux cas :
+     * - 'initiated' / 'pending' : rien (ou une partie) n'a quitté le wallet
+     *   de manière définitive -> remboursement du net débité au ledger
+     *   (souvent 0 : aucune création d'argent, cf. refundWallet).
+     * - 'completed' réglé en INTERNE (QR P2P / virement FriPay->FriPay) :
+     *   l'argent a réellement circulé entre deux wallets FriPay ->
+     *   annulation = inversion SYMÉTRIQUE : l'expéditeur récupère l'exact
+     *   inverse de son débit (ledger) ET le bénéficiaire rend l'exact
+     *   inverse de son crédit (ledger). Si le bénéficiaire a déjà dépensé
+     *   les fonds (solde insuffisant), l'annulation est refusée.
      */
     public function cancel(Transaction $transaction): Transaction
     {
-        if (!in_array($transaction->status, ['initiated', 'pending'])) {
+        $isInternalSettled = $this->isInternallySettled($transaction);
+
+        if (!in_array($transaction->status, ['initiated', 'pending'], true) && !$isInternalSettled) {
             throw new \RuntimeException('TRANSACTION_NOT_CANCELLABLE');
         }
 
-        $previousStatus = $transaction->status;
-        $transaction->update(['status' => 'cancelled']);
+        // Validation AVANT tout changement d'état : si le bénéficiaire ne
+        // peut pas rendre les fonds, la transaction reste dans son état.
+        if ($isInternalSettled) {
+            $this->assertInternalSettlementReversible($transaction);
+        }
 
-        $this->refundWallet($transaction, 'transfer_refund_cancelled');
+        \Illuminate\Support\Facades\DB::transaction(function () use ($transaction, $isInternalSettled) {
+            $previousStatus = $transaction->status;
+            $transaction->update(['status' => 'cancelled']);
 
-        $this->recordHistory($transaction, $previousStatus, 'cancelled', 'user', "Annulé par l'utilisateur");
+            if ($isInternalSettled) {
+                $this->reverseInternalSettlement($transaction);
+            } else {
+                $this->refundWallet($transaction, 'transfer_refund_cancelled');
+            }
+
+            $this->recordHistory($transaction, $previousStatus, 'cancelled', 'user', "Annulé par l'utilisateur");
+        });
 
         return $transaction;
+    }
+
+    /**
+     * La transaction a-t-elle été réglée entre deux wallets Fripay
+     * (rail interne) ? Dans ce cas une annulation est une inversion
+     * symétrique, pas un simple remboursement.
+     */
+    private function isInternallySettled(Transaction $transaction): bool
+    {
+        if ($transaction->status !== 'completed') {
+            return false;
+        }
+
+        $rail = (string) ($transaction->rail_used ?? '');
+
+        return $rail === 'fripay_internal' || str_starts_with($rail, 'qr_');
+    }
+
+    /**
+     * ID du bénéficiaire d'un règlement interne (métadonnées).
+     */
+    private function internalRecipientId(Transaction $transaction): ?string
+    {
+        $meta = $transaction->metadata ?? [];
+
+        return $meta['recipient_user_id'] ?? $meta['merchant_id'] ?? null;
+    }
+
+    /**
+     * Vérifie que l'inversion d'un règlement interne est possible :
+     * le bénéficiaire a bien reçu un crédit au ledger pour cette
+     * transaction ET dispose encore des fonds pour le rendre.
+     */
+    private function assertInternalSettlementReversible(Transaction $transaction): void
+    {
+        $recipientId = $this->internalRecipientId($transaction);
+
+        if (!$recipientId) {
+            throw new \RuntimeException('TRANSACTION_NOT_CANCELLABLE');
+        }
+
+        $recipientWallet = $this->wallets->getOrCreate($recipientId);
+        $netCredited = -$this->wallets->netMovementForTransaction($recipientWallet->id, $transaction->id);
+
+        if ($netCredited <= 0) {
+            // Aucun crédit tracé au ledger : rien à inverser côté
+            // bénéficiaire (l'expéditeur sera remboursé du net débité).
+            return;
+        }
+
+        if ((float) $recipientWallet->balance < $netCredited) {
+            // Le bénéficiaire a déjà dépensé les fonds : on ne crée pas
+            // d'argent — l'annulation est refusée.
+            throw new \RuntimeException('TRANSACTION_NOT_CANCELLABLE');
+        }
+    }
+
+    /**
+     * Inversion symétrique d'un règlement interne : remboursement de
+     * l'expéditeur (exact inverse de son débit, via refundWallet) +
+     * prélèvement du bénéficiaire (exact inverse de son crédit, via le
+     * ledger). Les frais restent acquis à la plateforme, symétriquement
+     * à l'opération d'origine.
+     */
+    private function reverseInternalSettlement(Transaction $transaction): void
+    {
+        // 1) L'expéditeur récupère ce qu'il a réellement débité.
+        $this->refundWallet($transaction, 'transfer_refund_cancelled');
+
+        // 2) Le bénéficiaire rend ce qu'il a réellement reçu (ledger).
+        $recipientId = $this->internalRecipientId($transaction);
+
+        if (!$recipientId) {
+            return;
+        }
+
+        $recipientWallet = $this->wallets->getOrCreate($recipientId);
+        $netCredited = -$this->wallets->netMovementForTransaction($recipientWallet->id, $transaction->id);
+
+        if ($netCredited <= 0) {
+            return;
+        }
+
+        $this->wallets->debit(
+            $recipientId,
+            $netCredited,
+            $transaction->id,
+            'transfer_reversal_out',
+            "Annulation {$transaction->reference} — reprise du crédit"
+        );
     }
 }
