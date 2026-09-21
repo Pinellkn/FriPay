@@ -5,6 +5,8 @@ namespace App\Providers;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -18,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->checkPhpVersion();
         $this->configureRateLimiting();
+        $this->degradeGracefullyWithoutRedis();
     }
 
     /**
@@ -74,5 +77,39 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('webhook', function (Request $request) {
             return Limit::perMinute(100)->by($request->ip());
         });
+    }
+
+    /**
+     * Dégradation gracieuse si Redis est injoignable (dev Windows sans
+     * service Redis) : bascule queue sync + cache file pour que l'appli
+     * reste DÉVELOPPABLE — les jobs partent alors en synchrone (comportement
+     * d'avant) au lieu de crasher en "Connection refused". En production,
+     * Redis est un prérequis : aucune dégradation silencieuse.
+     */
+    private function degradeGracefullyWithoutRedis(): void
+    {
+        if (app()->environment('production', 'testing')) {
+            return;
+        }
+
+        if (config('queue.default') !== 'redis' && config('cache.default') !== 'redis') {
+            return; // rien à dégrader
+        }
+
+        try {
+            Redis::connection()->ping();
+        } catch (\Throwable $e) {
+            if (config('queue.default') === 'redis') {
+                config(['queue.default' => 'sync']);
+            }
+            if (config('cache.default') === 'redis') {
+                config(['cache.default' => 'file']);
+            }
+
+            Log::warning('Redis injoignable — bascule queue sync + cache file (dev uniquement). '
+                . 'Installez/démarrez Redis pour activer les workers Horizon.', [
+                'reason' => $e->getMessage(),
+            ]);
+        }
     }
 }

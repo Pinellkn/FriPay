@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\InitiateTopupPayment;
+use App\Jobs\RefreshTopupStatus;
 use App\Models\Topup;
 use App\Services\TopupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Recharge du wallet via FeexPay (agrégateur).
@@ -24,9 +27,11 @@ class TopupController extends Controller
      * POST /api/v1/wallet/topup/feexpay
      * Body : { amount: int (XOF), operator: "MTN"|"MOOV" }
      *
-     * Crée la recharge et déclenche la demande de paiement FeexPay (push
-     * sur le téléphone du client, qui valide avec son code mobile money).
-     * Le wallet n'est crédité qu'À LA CONFIRMATION (webhook ou statut).
+     * Crée la recharge locale puis RÉPOND IMMÉDIATEMENT 202 : l'appel
+     * FeexPay (jusqu'à 30 s) est effectué par le job InitiateTopupPayment
+     * (queue `feexpay`), jamais dans le cycle requête HTTP. Le push arrive
+     * sur le téléphone du client quelques secondes plus tard ; le wallet
+     * n'est crédité qu'À LA CONFIRMATION (webhook ou statut).
      */
     public function initiate(Request $request): JsonResponse
     {
@@ -38,33 +43,27 @@ class TopupController extends Controller
             'operator.in'      => 'Opérateur non supporté par la recharge FeexPay (MTN ou Moov).',
         ]);
 
-        $result = $this->topups->initiate(
+        $topup = $this->topups->initiate(
             $request->user(),
             (float) $validated['amount'],
             $validated['operator']
         );
 
-        if (! $result['accepted']) {
-            return $this->errorResponse(
-                'TOPUP_REJECTED',
-                'Recharge refusée',
-                422,
-                $result['message'],
-                $request
-            );
-        }
+        // Découplage : le worker HTTP n'attend jamais l'agrégateur.
+        InitiateTopupPayment::dispatch($topup->id);
 
         return response()->json([
-            'topup'       => $this->serialize($result['topup']),
-            'message'     => $result['message'],
-            'payment_url' => $result['payment_url'],
-        ], 201);
+            'topup'   => $this->serialize($topup),
+            'message' => 'Recharge acceptée — la demande de paiement va arriver sur votre téléphone (' . $topup->operator_code . ').',
+        ], 202);
     }
 
     /**
      * GET /api/v1/wallet/topup/feexpay/{topupId}
-     * Vérifie le statut en temps réel auprès de FeexPay et crédite le wallet
-     * si le paiement vient d'être confirmé. Idempotent.
+     * Statut LOCAL du topup (réponse immédiate) + dispatch d'une
+     * vérification active auprès de FeexPay (queue `feexpay`) : l'appel
+     * sortant getStatus ne bloque plus le worker HTTP. Le résultat d'une
+     * confirmation est visible au poll suivant. Idempotent.
      */
     public function status(Request $request, string $topupId): JsonResponse
     {
@@ -77,7 +76,12 @@ class TopupController extends Controller
             );
         }
 
-        $topup = $this->topups->refreshStatus($topup);
+        // Vérification active découplée — au plus une demande par topup
+        // toutes les 5 s (le polling client ne doit pas spammer FeexPay).
+        if (in_array($topup->status, ['pending', 'processing'], true)
+            && Cache::add("topup:refresh:{$topup->id}", true, 5)) {
+            RefreshTopupStatus::dispatch($topup->id);
+        }
 
         return response()->json([
             'topup'   => $this->serialize($topup),

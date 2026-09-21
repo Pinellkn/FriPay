@@ -32,68 +32,68 @@ class TopupService
     ) {}
 
     /**
-     * Initie une recharge : crée le topup local puis la demande de paiement
-     * FeexPay. Le wallet n'est PAS crédité à cette étape : il le sera à la
-     * confirmation effective du paiement (webhook ou vérification active).
+     * Crée le topup local (statut `pending`). L'appel FeexPay n'est PAS
+     * fait ici : il est effectué par le job InitiateTopupPayment (queue
+     * `feexpay`) afin de ne jamais bloquer un worker HTTP 30 s sur
+     * l'agrégateur. Le wallet n'est crédité qu'à la CONFIRMATION
+     * (webhook ou vérification active).
      */
-    public function initiate(User $user, float $amount, string $operator): array
+    public function initiate(User $user, float $amount, string $operator): Topup
     {
-        $phone = $user->phone_number; // E.164 +22901XXXXXXXX (compte de l'utilisateur)
-
-        $topup = Topup::create([
+        return Topup::create([
             'id'              => (string) Str::uuid(),
             'user_id'         => $user->id,
             'amount'          => $amount,
             'currency'        => 'XOF',
             'operator_code'   => strtoupper($operator),
-            'phone_number'    => $phone,
+            'phone_number'    => $user->phone_number, // E.164 +22901XXXXXXXX
             'status'          => 'pending',
             'reference'       => 'TOP-' . strtoupper(Str::random(12)),
         ]);
+    }
+
+    /**
+     * Soumet la collecte FeexPay d'un topup déjà créé. Exécuté par le job
+     * InitiateTopupPayment (worker Horizon), plus par le cycle HTTP.
+     *
+     * Retourne le résultat brut du connecteur :
+     *   success / retryable / reference / payment_url / message.
+     */
+    public function submitToProvider(Topup $topup): array
+    {
+        $user = User::find($topup->user_id);
 
         $result = $this->feexpay->requestToPay([
-            'amount'      => (int) $amount,
-            'phone'       => ltrim($phone, '+'),
-            'operator'    => $operator,
-            'first_name'  => $user->first_name,
-            'last_name'   => $user->last_name,
-            'email'       => $user->email,
+            'amount'      => (int) $topup->amount,
+            'phone'       => ltrim((string) $topup->phone_number, '+'),
+            'operator'    => $topup->operator_code,
+            'first_name'  => $user?->first_name,
+            'last_name'   => $user?->last_name,
+            'email'       => $user?->email,
             'reference'   => $topup->reference,
             'description' => 'Recharge wallet FriPay ' . $topup->reference,
         ]);
 
-        if (! $result['success']) {
-            // La collecte n'a pas pu être créée chez FeexPay : on marque le
-            // topup en échec immédiat (retryable -> pending pour rejeu).
+        if ($result['success']) {
             $topup->update([
-                'status'       => ($result['retryable'] ?? false) ? 'pending' : 'failed',
+                'provider_reference' => $result['reference'],
+                'status'             => 'processing',
+            ]);
+        } elseif (! ($result['retryable'] ?? false)) {
+            // Rejet définitif : le job ne relancera pas — tracer tout de
+            // suite. (L'indisponibilité temporaire reste au job de la gérer.)
+            $topup->update([
+                'status'         => 'failed',
                 'failure_reason' => $result['message'],
             ]);
 
-            Log::warning('Recharge FeexPay : création de la collecte échouée', [
+            Log::warning('Recharge FeexPay : collecte rejetée', [
                 'topup'  => $topup->id,
                 'reason' => $result['message'],
             ]);
-
-            return [
-                'topup'       => $topup->fresh(),
-                'accepted'    => false,
-                'message'     => $result['message'],
-                'payment_url' => null,
-            ];
         }
 
-        $topup->update([
-            'provider_reference' => $result['reference'],
-            'status'             => 'processing',
-        ]);
-
-        return [
-            'topup'       => $topup->fresh(),
-            'accepted'    => true,
-            'message'     => 'Demande de paiement envoyée — validez sur votre téléphone (' . $topup->operator_code . ').',
-            'payment_url' => $result['payment_url'],
-        ];
+        return $result;
     }
 
     /**

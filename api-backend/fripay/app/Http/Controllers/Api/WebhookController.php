@@ -3,11 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessFeexpayWebhook;
 use App\Models\Transaction;
 use App\Models\TransactionStatusHistory;
 use App\Models\WebhookEvent;
-use App\Services\PaymentLinkService;
-use App\Services\TopupService;
 use App\Services\TransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,8 +16,6 @@ class WebhookController extends Controller
 {
     public function __construct(
         private readonly TransferService $transferService,
-        private readonly TopupService $topupService,
-        private readonly PaymentLinkService $paymentLinkService,
     ) {}
 
     /**
@@ -53,37 +50,16 @@ class WebhookController extends Controller
             return response()->json(['status' => 'ok'], 200); // 200 pour éviter les retries inutiles
         }
 
-        // Source de vérité : on re-interroge l'API FeexPay plutôt que de
-        // faire confiance au corps du callback (pas de signature disponible).
-        // Deux objets métier peuvent être concernés : recharge (topup) ou
-        // paiement d'un FriPay Link.
-        $topup = $this->topupService->refreshStatusByProviderReference($providerReference);
+        // DÉCOUPLAGE : réponse 200 à FeexPay IMMÉDIATEMENT. La vérification
+        // auprès de l'API (source de vérité) et le crédit éventuel sont
+        // faits par le job ProcessFeexpayWebhook (queue `webhooks`) — un
+        // burst de webhooks ne peut plus épuiser les workers HTTP, et un
+        // traitement raté est rejoué par la queue (retries + failed).
+        ProcessFeexpayWebhook::dispatch($webhookEvent->id, $providerReference);
 
-        if (! $topup) {
-            // Pas un topup : peut-être le paiement d'un FriPay Link. La
-            // vérification API FeexPay reste la source de vérité — un
-            // callback forgé ne peut pas créditer un wallet.
-            $link = $this->paymentLinkService->confirmByProviderReference($providerReference);
-
-            if ($link) {
-                $webhookEvent->update(['processed' => true]);
-
-                Log::info('Webhook FeexPay traité (FriPay Link)', [
-                    'reference' => $providerReference,
-                    'link'      => $link->id,
-                    'status'    => $link->status,
-                ]);
-
-                return response()->json(['status' => 'ok'], 200);
-            }
-        }
-
-        $webhookEvent->update(['processed' => true]);
-
-        Log::info('Webhook FeexPay traité', [
+        Log::info('Webhook FeexPay reçu — traitement dispatché', [
             'reference' => $providerReference,
-            'topup'     => $topup?->id,
-            'status'    => $topup?->status,
+            'event'     => $webhookEvent->id,
         ]);
 
         return response()->json(['status' => 'ok'], 200);

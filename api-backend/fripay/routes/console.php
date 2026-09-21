@@ -32,3 +32,23 @@ Schedule::command('reconcile:offline-qr')
     ->everySixHours()
     ->withoutOverlapping()
     ->onOneServer();
+
+/*
+| Filets de sécurité paiements asynchrones (queues Redis + Horizon)
+|--------------------------------------------------------------------------
+| Les webhooks FeexPay peuvent être perdus (réseau, callback_url absente
+| en dev) : ces deux tâches vérifient activement le statut auprès de
+| l'agrégateur et complètent (crédit idempotent) ou expirent les entrées.
+*/
+
+// Recharges pending/processing : vérification FeexPay + crédit si confirmé.
+Schedule::job(new \App\Jobs\RefreshPendingTopups)
+    ->everyTwoMinutes()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// FriPay Links en attente : vérification + passage automatique en `expired`.
+Schedule::command('links:refresh-pending')
+    ->everyTwoMinutes()
+    ->withoutOverlapping()
+    ->onOneServer();

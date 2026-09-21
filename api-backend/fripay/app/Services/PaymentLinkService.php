@@ -67,7 +67,11 @@ class PaymentLinkService
     }
 
     /**
-     * Initie le paiement FeexPay du lien par un payeur externe (sans compte).
+     * Valide la demande de paiement d'un lien par un payeur externe.
+     * N'appelle PAS FeexPay : l'appel sortant est effectué par le job
+     * InitiatePaymentLinkCharge (queue `feexpay`) — le contrôleur répond
+     * 202 immédiatement, sans jamais bloquer un worker HTTP sur l'agrégateur.
+     *
      * Le montant est TOUJOURS celui du lien — jamais une entrée du payeur.
      */
     public function initiatePayment(PaymentLink $link, string $payerPhone, string $operator): array
@@ -92,14 +96,24 @@ class PaymentLinkService
             return ['accepted' => false, 'message' => 'Opérateur non supporté (MTN ou Moov).'];
         }
 
-        // Référence métier FriPay : sert de clé d'idempotence côté FeexPay
-        // ET de traçabilité (audit) — sans jamais être l'ID du lien.
+        return ['accepted' => true, 'message' => 'Demande acceptée', 'phone' => $phone, 'operator' => strtoupper($operator)];
+    }
+
+    /**
+     * Soumet la collecte FeexPay d'un lien (exécuté par le JOB, plus par
+     * le cycle HTTP). Mémorise la provider_reference : le webhook et les
+     * vérifications de statut s'en servent pour retrouver CE lien.
+     */
+    public function submitToProvider(PaymentLink $link, string $normalizedPhone, string $operator): array
+    {
+        // Référence métier FriPay : clé d'idempotence côté FeexPay et
+        // traçabilité (audit) — sans jamais être l'ID du lien.
         $reference = 'LINK-' . strtoupper(Str::random(12));
 
         $result = $this->feexpay->requestToPay([
             'amount'      => (int) $link->amount, // montant VERROUILLÉ du lien
-            'phone'       => ltrim($phone, '+'),
-            'operator'    => strtoupper($operator),
+            'phone'       => ltrim($normalizedPhone, '+'),
+            'operator'    => $operator,
             'first_name'  => 'Payeur',
             'last_name'   => 'FriPay Link',
             'email'       => '',
@@ -107,28 +121,17 @@ class PaymentLinkService
             'description' => 'Paiement lien FriPay ' . $reference,
         ]);
 
-        if (! $result['success']) {
-            Log::warning('FriPay Link : initiation FeexPay échouée', [
+        if ($result['success']) {
+            $link->update(['provider_reference' => $result['reference']]);
+        } elseif (! ($result['retryable'] ?? false)) {
+            Log::warning('FriPay Link : collecte rejetée par FeexPay', [
                 'link'   => $link->id,
                 'reason' => $result['message'],
             ]);
-
-            return [
-                'accepted' => false,
-                'message'  => $result['message'],
-                'retryable' => (bool) ($result['retryable'] ?? false),
-            ];
+            // Le lien reste payable : le rejet concerne la demande, pas le lien.
         }
 
-        // On mémorise la référence FeexPay : le webhook et les vérifications
-        // de statut s'en servent pour retrouver CE lien précisément.
-        $link->update(['provider_reference' => $result['reference']]);
-
-        return [
-            'accepted' => true,
-            'message'  => 'Demande de paiement envoyée — validez sur votre téléphone (' . strtoupper($operator) . ').',
-            'reference' => $reference,
-        ];
+        return $result;
     }
 
     /**
@@ -204,9 +207,7 @@ class PaymentLinkService
             return null;
         }
 
-        if (! $this->refreshFromProvider($link)) {
-            return $link->fresh();
-        }
+        $this->refreshFromProvider($link);
 
         return $link->fresh();
     }

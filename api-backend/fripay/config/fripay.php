@@ -98,6 +98,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Dashboard Horizon (workers de queue)
+    |--------------------------------------------------------------------------
+    |
+    | Emails autorisés à consulter /horizon hors environnement local.
+    | Séparer les adresses par des virgules.
+    |
+    */
+    'horizon' => [
+        'allowed_emails' => env('HORIZON_ALLOWED_EMAILS', ''),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | File d'attente des transferts différés (outbox)
     |--------------------------------------------------------------------------
     |

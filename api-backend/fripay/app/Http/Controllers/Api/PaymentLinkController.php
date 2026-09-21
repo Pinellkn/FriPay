@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\InitiatePaymentLinkCharge;
+use App\Jobs\RefreshPaymentLinkStatus;
 use App\Models\PaymentLink;
 use App\Services\PaymentLinkService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * FriPay Link — liens de paiement partageables.
@@ -98,10 +101,11 @@ class PaymentLinkController extends Controller
      * Body : { phone: string, operator: "MTN"|"MOOV" }
      *
      * Le montant n'est JAMAIS pris du corps de la requête : c'est celui du
-     * lien, verrouillé côté serveur. Un paiement sur un lien déjà payé ou
-     * expiré est refusé.
+     * lien, verrouillé côté serveur. La validation (lien payable, numéro,
+     * opérateur) est faite ICI, puis réponse 202 IMMÉDIATE — l'appel
+     * FeexPay part dans la queue `feexpay` (job InitiatePaymentLinkCharge).
      *
-     * @response status=202 {"accepted":true,"message":"Demande de paiement envoyée..."}
+     * @response status=202 {"accepted":true,"message":"Demande acceptée"}
      * @response status=422 {"error":"LINK_NOT_PAYABLE","message":"Ce lien a déjà été payé."}
      */
     public function pay(Request $request, string $token): JsonResponse
@@ -139,18 +143,22 @@ class PaymentLinkController extends Controller
             ], $isLinkState ? 410 : 422);
         }
 
+        // Découplage : l'appel FeexPay (jusqu'à 30 s) part en queue — le
+        // push arrive sur le téléphone du payeur quelques secondes plus tard.
+        InitiatePaymentLinkCharge::dispatch($link->id, $result['phone'], $result['operator']);
+
         return response()->json([
-            'accepted'  => true,
-            'message'   => $result['message'],
-            'reference' => $result['reference'] ?? null,
+            'accepted' => true,
+            'message'  => 'Demande acceptée — validez sur votre téléphone (' . $result['operator'] . ').',
         ], 202);
     }
 
     /**
      * GET /api/v1/payment-links/{token}/status — PUBLIC.
-     * Polling côté page web : vérifie le statut auprès de FeexPay et
-     * confirme le paiement si SUCCESSFUL (crédit + notification), puis
-     * renvoie l'état frais du lien. Idempotent.
+     * Polling côté page web : renvoie l'état LOCAL du lien (réponse
+     * immédiate) et dispatche une vérification active auprès de FeexPay
+     * (queue `feexpay`) — au plus une par lien toutes les 3 s. La
+     * confirmation (crédit + notification) est visible au poll suivant.
      */
     public function status(Request $request, string $token): JsonResponse
     {
@@ -160,12 +168,14 @@ class PaymentLinkController extends Controller
             return response()->json(['error' => 'LINK_NOT_FOUND'], 404);
         }
 
-        // Source de vérité : l'API FeexPay (le webhook peut être perdu).
-        $this->links->refreshFromProvider($link);
+        // Vérification active découplée (anti-spam : 1 appel FeexPay / 3 s).
+        if ($link->status === PaymentLink::STATUS_CREATED
+            && $link->provider_reference
+            && Cache::add("link:refresh:{$link->id}", true, 3)) {
+            RefreshPaymentLinkStatus::dispatch($link->id);
+        }
 
-        $fresh = $link->fresh();
-
-        return response()->json($this->serialize($fresh, $request));
+        return response()->json($this->serialize($link->fresh(), $request));
     }
 
     private function serialize(PaymentLink $link, Request $request): array
