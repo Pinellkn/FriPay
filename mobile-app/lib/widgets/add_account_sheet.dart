@@ -7,7 +7,7 @@ import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 
-/// Bottom sheet pour lier un compte mobile money réel
+/// Bottom sheet pour lier un compte mobile réel
 /// (POST /users/me/accounts) — l'opérateur (MTN / Moov / Celtiis) est
 /// détecté automatiquement côté API à partir du numéro, aucune sélection
 /// manuelle n'est nécessaire.
@@ -100,7 +100,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
               children: [
                 const Icon(Icons.add_card_rounded, color: AppColors.primary, size: 20),
                 const SizedBox(width: 8),
-                Text('Lier un compte mobile money', style: GoogleFonts.sora(fontSize: 17, fontWeight: FontWeight.w700)),
+                Text('Lier un compte mobile', style: GoogleFonts.sora(fontSize: 17, fontWeight: FontWeight.w700)),
               ],
             ),
             const SizedBox(height: 6),

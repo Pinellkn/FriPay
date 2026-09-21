@@ -8,7 +8,7 @@ import 'api_client.dart';
 ///   GET  /wallet/topup/feexpay          -> historique des recharges
 ///
 /// Le wallet n'est crédité côté serveur qu'après la CONFIRMATION du paiement
-/// mobile money sur le téléphone (MTN/Moov) — pas à l'initiation.
+/// mobile sur le téléphone (MTN/Moov) — pas à l'initiation.
 class FeexpayService {
   FeexpayService._();
   static final FeexpayService instance = FeexpayService._();

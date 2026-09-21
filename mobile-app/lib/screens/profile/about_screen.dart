@@ -38,7 +38,7 @@ class AboutScreen extends StatelessWidget {
             Text("Née d'un problème très concret", style: GoogleFonts.sora(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 12),
             const Text(
-              "Au Bénin, trois opérateurs se partagent le mobile money et communiquent mal entre eux. "
+              "Au Bénin, trois opérateurs se partagent le mobile et communiquent mal entre eux. "
               "Résultat : des files chez les agents, des frais doubles et des transferts qui échouent. "
               "FriPay a été fondée à Cotonou en 2024 par une équipe d'ingénieurs et d'opérateurs terrain "
               "pour rendre ces réseaux interopérables.",

@@ -19,11 +19,11 @@ import '../recharge/recharge_screen.dart';
 
 /// Portage de src/routes/app.portefeuilles.tsx — branché sur le solde
 /// interne FriPay (GET /wallet, GET /wallet/transactions) et sur les
-/// comptes mobile money réellement liés (GET /users/me/accounts).
+/// comptes mobiles réellement liés (GET /users/me/accounts).
 ///
 /// Le wallet est un porte-monnaie interne à FriPay (ledger propre, pas le
 /// solde réel chez l'opérateur) : chaque compte lié reste par ailleurs
-/// géré par son opérateur mobile money.
+/// géré par son opérateur mobile.
 class WalletsScreen extends StatefulWidget {
   const WalletsScreen({super.key});
 
@@ -160,7 +160,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
             children: [
               const SectionHeader(
                 title: 'Solde FriPay',
-                subtitle: 'Porte-monnaie interne, distinct de vos comptes mobile money.',
+                subtitle: 'Porte-monnaie interne, distinct de vos comptes mobiles.',
               ),
               // Carte solde — même langage visuel que BalanceCard (accueil) :
               // dégradé émeraude, montant en Sora, pilule « N° FriPay ».
@@ -260,7 +260,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
               ),
               const SectionHeader(
                 title: 'Vos portefeuilles',
-                subtitle: 'Comptes mobile money liés à votre compte FriPay.',
+                subtitle: 'Comptes mobiles liés à votre compte FriPay.',
               ),
               if (_error != null)
                 Padding(
@@ -276,7 +276,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
                 const Padding(
                   padding: EdgeInsets.only(top: 24, bottom: 14),
                   child: Text(
-                    'Aucun compte mobile money lié pour le moment. '
+                    'Aucun compte mobile lié pour le moment. '
                     "Sans compte lié, vous ne pouvez ni envoyer d'argent ni payer par QR.",
                     style: TextStyle(color: AppColors.mutedForeground),
                   ),
@@ -284,7 +284,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
                 ElevatedButton.icon(
                   onPressed: _addAccount,
                   icon: const Icon(Icons.add_card_rounded, size: 18),
-                  label: const Text('Lier un compte mobile money'),
+                  label: const Text('Lier un compte mobile'),
                 ),
                 const SizedBox(height: 8),
               ],

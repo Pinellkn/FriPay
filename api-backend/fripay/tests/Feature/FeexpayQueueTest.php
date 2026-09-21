@@ -236,7 +236,7 @@ class FeexpayQueueTest extends TestCase
         ]);
 
         Http::fake([
-            '*/api/transactions/getrequesttopay/integration/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 1200], 200),
+            '*/api/transactions/public/single/status/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 1200], 200),
         ]);
 
         (new ProcessFeexpayWebhook($event->id, 'FEEX-WH-002'))

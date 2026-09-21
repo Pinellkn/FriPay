@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/payment_link_service.dart';
 import '../../theme/app_colors.dart';
@@ -10,7 +11,7 @@ import '../../theme/app_colors.dart';
 /// L'utilisateur saisit un montant (obligatoire) et un motif (facultatif).
 /// Le backend génère un lien unique non-devinable, verrouille le montant et
 /// renvoie une URL publique /pay/{token} que n'importe qui peut ouvrir pour
-/// payer via Mobile Money (MTN / Moov), sans compte FriPay.
+/// payer via mobile (MTN, Moov, Celtiis), sans compte FriPay.
 ///
 /// Accessible depuis l'accueil (actions rapides).
 class PaymentLinkScreen extends StatefulWidget {
@@ -83,6 +84,17 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
     if (mounted) _snack('Lien copié — collez-le où vous voulez');
   }
 
+  /// Ouvre le lien dans le navigateur (aperçu de ce que verra le payeur).
+  Future<void> _openLink(FripayLink link) async {
+    final url = Uri.parse(link.shareUrl ?? 'https://fripay.bj/pay/${link.token}');
+    try {
+      final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) _snack('Impossible d\'ouvrir le navigateur.');
+    } catch (_) {
+      if (mounted) _snack('Impossible d\'ouvrir le navigateur.');
+    }
+  }
+
   void _snack(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
@@ -127,7 +139,7 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Partagez un lien sécurisé : votre contact paie via Mobile Money (MTN, Moov), même sans l\'appli FriPay.',
+            'Partagez un lien sécurisé : votre contact paie via mobile (MTN, Moov, Celtiis), même sans l\'appli FriPay.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
           ),
@@ -202,7 +214,7 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Quiconque ouvre ce lien peut vous payer de ${_formatAmount(link.amount)} via Mobile Money.',
+          'Quiconque ouvre ce lien peut vous payer de ${_formatAmount(link.amount)} via mobile.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
         ),
@@ -225,7 +237,25 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
                 Text(_formatAmount(link.amount),
                     style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.primary)),
                 const SizedBox(height: 10),
-                SelectableText(url, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12.5)),
+                // VRAI LIEN CLIQUABLE (pas un simple texte à copier) :
+                // un appui ouvre la page de paiement dans le navigateur.
+                InkWell(
+                  onTap: () => _openLink(link),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Text(
+                      url,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.primary,
+                        decoration: TextDecoration.underline,
+                        decorationColor: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -243,14 +273,32 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
           label: const Text('Partager le lien', style: TextStyle(fontSize: 15.5)),
         ),
         const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: () => _copyLink(link),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          ),
-          icon: const Icon(Icons.copy_rounded),
-          label: const Text('Copier le lien'),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _openLink(link),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: const Text('Ouvrir', style: TextStyle(fontSize: 13)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _copyLink(link),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                icon: const Icon(Icons.copy_rounded, size: 18),
+                label: const Text('Copier', style: TextStyle(fontSize: 13)),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 10),
         TextButton(

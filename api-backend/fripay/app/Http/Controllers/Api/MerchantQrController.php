@@ -305,7 +305,7 @@ class MerchantQrController extends Controller
      * @bodyParam uuid string required UUID du QR Code.
      * @bodyParam amount integer required Montant à payer (doit correspondre au QR).
      * @bodyParam pin string required Code PIN du client (4-6 chiffres). Example: 1234
-     * @bodyParam sender_account_id string required ID du compte mobile money du client.
+     * @bodyParam sender_account_id string required ID du compte mobile du client.
      *
      * @response status=202 {"transaction_id":"...","reference":"QR-...","status":"pending","amount":5000,"fee_amount":50,"total_debited":5050}
      *
@@ -456,7 +456,7 @@ class MerchantQrController extends Controller
             // bénéficiaire, tous deux tracés dans le ledger
             // (WalletLedgerEntry) avec le même transaction_id.
             //
-            // Destinataire externe (vrai marchand mobile money) : le solde
+            // Destinataire externe (vrai marchand mobile) : le solde
             // du payeur est réservé par le débit ; le crédit vers son
             // compte opérateur restera déclenché par le webhook de
             // confirmation du connecteur (source de vérité externe).
@@ -567,7 +567,7 @@ class MerchantQrController extends Controller
      * @bodyParam currency string Devise ISO 4217. Défaut: XOF. Example: XOF
      * @bodyParam description string Description du paiement. Example: Café au lait
      * @bodyParam expires_minutes integer Durée de validité en minutes (1-10). Défaut: 5. Example: 3
-     * @bodyParam sender_account_id string required ID du compte mobile money à débiter. Example: uuid
+     * @bodyParam sender_account_id string required ID du compte mobile à débiter. Example: uuid
      *
      * @response status=201 {"qr_code":"...","uuid":"...","amount":3000,"expires_at":"..."}
      *
@@ -756,7 +756,7 @@ class MerchantQrController extends Controller
      * par le client lors de la génération).
      *
      * @bodyParam uuid string required UUID du QR Code.
-     * @bodyParam merchant_account_id string required ID du compte mobile money du marchand.
+     * @bodyParam merchant_account_id string required ID du compte mobile du marchand.
      * @bodyParam pin string required Code PIN du marchand. Example: 5678
      *
      * @response status=202 {"transaction_id":"...","reference":"QR-...","status":"pending","amount":3000,"fee_amount":30,"total_debited":3030}

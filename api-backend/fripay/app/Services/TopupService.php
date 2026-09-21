@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * Recharge du wallet FriPay via l'agrégateur FeexPay (collecte mobile money
+ * Recharge du wallet FriPay via l'agrégateur FeexPay (collecte mobile
  * MTN/Moov) — en attendant les API natives MTN/Moov/Celtiis.
  *
  * Flux (cahier des charges — « Dépôt » renommé « Recharge ») :

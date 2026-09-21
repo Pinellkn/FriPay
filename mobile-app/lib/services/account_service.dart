@@ -1,6 +1,6 @@
 import 'api_client.dart';
 
-/// Compte mobile money lié au compte FriPay de l'utilisateur.
+/// Compte mobile lié au compte FriPay de l'utilisateur.
 /// Miroir de LinkedAccountResource (fripay-users).
 /// Remarque : le backend n'expose pas de solde (pas d'endpoint balance) —
 /// FriPay orchestre des transferts vers ces comptes mais ne stocke pas

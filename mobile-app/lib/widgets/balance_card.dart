@@ -11,7 +11,7 @@ import '../utils/formatters.dart';
 ///
 /// L'API FriPay n'expose aucun solde consolidé (pas d'endpoint balance côté
 /// fripay-payments) : [balance] reste donc nullable. Quand il est null,
-/// la carte affiche le nombre de comptes mobile money liés plutôt qu'un
+/// la carte affiche le nombre de comptes mobiles liés plutôt qu'un
 /// montant inventé — même parti pris que l'écran Portefeuilles.
 ///
 /// [fripayNumber] : numéro FriPay de l'utilisateur (cahier §1), affiché en

@@ -3,7 +3,7 @@
 namespace App\Contracts;
 
 /**
- * Connecteur de paiement mobile money.
+ * Connecteur de paiement mobile.
  *
  * Chaque réseau GSM (MTN, Moov, Celtiis) dispose d'une API native. Chaque
  * intégration implémente cette interface puis est déclarée dans
@@ -28,7 +28,7 @@ interface TransferConnector
     public function isConfigured(): bool;
 
     /**
-     * Initie un transfert sortant (payout) vers un compte mobile money.
+     * Initie un transfert sortant (payout) vers un compte mobile.
      *
      * @param array $payload [
      *   'amount'          => int (montant en XOF),

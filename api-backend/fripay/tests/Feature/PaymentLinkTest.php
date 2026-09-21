@@ -135,7 +135,7 @@ class PaymentLinkTest extends TestCase
         // FeexPay accepte la collecte puis confirme SUCCESSFUL au polling.
         Http::fake([
             '*/api/transactions/requesttopay/integration' => Http::response(['reference' => 'FEEX-LINK-001', 'status' => 'PENDING'], 200),
-            '*/api/transactions/getrequesttopay/integration/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 3000, 'payer' => ['partyId' => '2290197000011']], 200),
+            '*/api/transactions/public/single/status/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 3000, 'payer' => ['partyId' => '2290197000011']], 200),
         ]);
 
         // 1) Le payeur externe (SANS auth) initie le paiement.
@@ -181,7 +181,7 @@ class PaymentLinkTest extends TestCase
 
         Http::fake([
             '*/api/transactions/requesttopay/integration' => Http::response(['reference' => 'FEEX-LINK-002', 'status' => 'PENDING'], 200),
-            '*/api/transactions/getrequesttopay/integration/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 1500], 200),
+            '*/api/transactions/public/single/status/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 1500], 200),
         ]);
 
         $this->postJson("/api/v1/payment-links/{$link->token}/pay", [
@@ -246,7 +246,7 @@ class PaymentLinkTest extends TestCase
 
         Http::fake([
             '*/api/transactions/requesttopay/integration' => Http::response(['reference' => 'FEEX-LINK-004', 'status' => 'PENDING'], 200),
-            '*/api/transactions/getrequesttopay/integration/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 1000], 200),
+            '*/api/transactions/public/single/status/*' => Http::response(['status' => 'SUCCESSFUL', 'amount' => 1000], 200),
         ]);
 
         $this->postJson("/api/v1/payment-links/{$link->token}/pay", [
@@ -268,7 +268,7 @@ class PaymentLinkTest extends TestCase
 
         // Aucun second appel FeexPay n'a été déclenché (aucune nouvelle
         // collecte sur un lien déjà payé).
-        Http::assertSentCount(2); // 1 requesttopay + 1 getrequesttopay
+        Http::assertSentCount(2); // 1 requesttopay + 1 consultation statut
     }
 
     public function test_expired_link_refuses_payment(): void
@@ -304,12 +304,23 @@ class PaymentLinkTest extends TestCase
 
         Http::fake(); // aucune requête sortante ne doit partir.
 
+        // CELTIIS est désormais supporté par la collecte FeexPay (MTN,
+        // MOOV, CELTIIS) : un opérateur hors liste est rejeté.
+        $this->postJson("/api/v1/payment-links/{$link->token}/pay", [
+            'phone'    => '+2290197000011',
+            'operator' => 'ORANGE',
+        ])->assertStatus(422);
+
+        // Celtiis est bien accepté (démarre la collecte, mocked).
+        Http::fake([
+            '*/api/transactions/requesttopay/integration' => Http::response(['reference' => 'FEEX-CEL-001', 'status' => 'PENDING'], 200),
+        ]);
         $this->postJson("/api/v1/payment-links/{$link->token}/pay", [
             'phone'    => '+2290197000011',
             'operator' => 'CELTIIS',
-        ])->assertStatus(422);
+        ])->assertStatus(202);
 
-        Http::assertNothingSent();
+        Http::assertSent(fn ($request) => strtoupper((string) $request['reseau']) === 'CELTIIS');
     }
 
     public function test_service_markLinkPaid_is_idempotent_at_the_service_level(): void

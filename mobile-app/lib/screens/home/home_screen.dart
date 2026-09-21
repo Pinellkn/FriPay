@@ -31,7 +31,7 @@ import '../wallets/wallets_screen.dart';
 /// sur GET /users/me (identité), GET /users/me/accounts (comptes liés),
 /// GET /wallet (solde interne FriPay) et GET /transfers (5 dernières
 /// transactions envoyées). Si /wallet échoue (backend indispo, etc.), la
-/// carte de solde retombe sur le nombre de comptes mobile money liés.
+/// carte de solde retombe sur le nombre de comptes mobiles liés.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 

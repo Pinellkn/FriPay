@@ -35,7 +35,7 @@ class AppColors {
   static const success = Color(0xFF3FA86B);
   static const warning = Color(0xFFE0A23A);
 
-  // Opérateurs mobile money (Bénin)
+  // Opérateurs mobiles (Bénin)
   static const mtn = Color(0xFFF2C94C);
   static const moov = Color(0xFF3B5FDB);
   static const celtiis = Color(0xFFD8432E);

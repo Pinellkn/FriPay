@@ -122,7 +122,7 @@ class _Hero extends StatelessWidget {
               children: [
                 const Icon(Icons.bolt_rounded, size: 14, color: AppColors.accentForeground),
                 const SizedBox(width: 6),
-                Text('Interopérabilité mobile money · Bénin',
+                Text('Interopérabilité mobile · Bénin',
                     style: GoogleFonts.manrope(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.accentForeground)),
               ],
             ),
@@ -261,7 +261,7 @@ class _StatsStrip extends StatelessWidget {
 
 class _StepsSection extends StatelessWidget {
   static const steps = [
-    ('Reliez vos numéros', 'Ajoutez vos comptes MTN MoMo, Moov Money et Celtiis Cash en une minute avec un simple code de confirmation.'),
+    ('Reliez vos numéros', 'Ajoutez vos comptes MTN Mobile, Moov Mobile et Celtiis Mobile en une minute avec un simple code de confirmation.'),
     ('Un solde unifié', 'FriPay agrège vos soldes et choisit automatiquement le portefeuille le moins cher pour chaque opération.'),
     ('Envoyez partout', 'MTN vers Moov, Celtiis vers MTN : le routage inter-opérateurs se fait en arrière-plan, en quelques secondes.'),
   ];

@@ -18,7 +18,7 @@ import 'send_qr_screen.dart';
 
 /// Portage de src/routes/app.envoyer.tsx — branché sur l'API réelle :
 /// POST /transfers/quote (simulation des frais) puis POST /transfers
-/// (initiation, PIN requis). Le compte d'envoi est un compte mobile money
+/// (initiation, PIN requis). Le compte d'envoi est un compte mobile
 /// réellement lié (GET /users/me/accounts), pas un solde FriPay mock.
 ///
 /// Consigne du boss (§5 — Etat fonctionnel de Fripay.md) : la fonction de
@@ -140,7 +140,7 @@ class _SendScreenState extends State<SendScreen> {
           else if (_accounts == null)
             const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: LinearProgressIndicator())
           else if (_accounts!.isEmpty)
-            const Text('Aucun compte mobile money lié. Ajoutez-en un depuis Portefeuilles.',
+            const Text('Aucun compte mobile lié. Ajoutez-en un depuis Portefeuilles.',
                 style: TextStyle(color: AppColors.mutedForeground, fontSize: 12.5))
           else
             Wrap(
@@ -246,7 +246,7 @@ class _SendScreenState extends State<SendScreen> {
               child: OutlinedButton.icon(
                 onPressed: _goLinkAccount,
                 icon: const Icon(Icons.add_card_rounded, size: 18),
-                label: const Text('Lier un compte mobile money'),
+                label: const Text('Lier un compte mobile'),
               ),
             ),
           ],

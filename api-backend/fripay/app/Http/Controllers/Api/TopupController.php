@@ -37,10 +37,10 @@ class TopupController extends Controller
     {
         $validated = $request->validate([
             'amount'   => ['required', 'integer', 'min:100', 'max:1000000'],
-            'operator' => ['required', 'string', 'in:MTN,MOOV'],
+            'operator' => ['required', 'string', 'in:MTN,MOOV,CELTIIS'],
         ], [
             'amount.min'       => 'Le montant minimum de recharge est de 100 FCFA.',
-            'operator.in'      => 'Opérateur non supporté par la recharge FeexPay (MTN ou Moov).',
+            'operator.in'      => 'Opérateur non supporté par la recharge FeexPay (MTN, Moov ou Celtiis).',
         ]);
 
         $topup = $this->topups->initiate(

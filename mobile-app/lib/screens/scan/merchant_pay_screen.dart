@@ -234,7 +234,7 @@ class _MerchantPayScreenState extends State<MerchantPayScreen> {
                   const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: LinearProgressIndicator())
                 else if (_accounts!.isEmpty)
                   const Text(
-                    'Aucun compte mobile money lié — liez-en un dans Portefeuilles.',
+                    'Aucun compte mobile lié — liez-en un dans Portefeuilles.',
                     style: TextStyle(color: AppColors.destructive, fontSize: 12.5),
                   )
                 else

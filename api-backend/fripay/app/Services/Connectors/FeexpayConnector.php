@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Log;
 /**
  * Connecteur agrégateur FeexPay (https://feexpay.me).
  *
- * Utilisé pour la RECHARGE du wallet FriPay (cash-in via mobile money) en
- * attendant les API natives MTN MoMo / Moov Money / Celtiis Cash. FeexPay
+ * Utilisé pour la RECHARGE du wallet FriPay (cash-in via mobile) en
+ * attendant les API natives MTN MoMo / Moov Mobile / Celtiis Mobile. FeexPay
  * est un agrégateur béninois : la collecte passe par les mêmes réseaux
  * MTN/Moov, mais avec UN SEUL contrat marchand (shop ID + token API).
  *
@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Log;
  *        -> { status: PENDING|SUCCESSFUL|FAILED, amount, payer{partyId}, reference }
  *
  * NOTE : FeexPay n'expose pas encore d'endpoint public de disbursement
- * (payout). Le retrait vers mobile money reste donc sur les connecteurs
+ * (payout). Le retrait vers mobile reste donc sur les connecteurs
  * opérateurs natifs (MTN/Moov/Celtiis) ou le retrait agent.
  *
  * Idempotence : la référence FriPay (topup UUID + référence métier) est
@@ -80,21 +80,36 @@ class FeexpayConnector
         }
 
         $payload = [
-            'phoneNumber'  => $params['phone'],
+            // Payload aligné sur le SDK officiel feexpay_flutter_v2
+            // (payForItMobile) — FeexPay est strict sur la forme.
             'amount'       => (int) $params['amount'],
-            'reseau'       => strtoupper($params['operator']), // MTN | MOOV
             'token'        => $this->config('token'),
-            'shop'         => $this->config('id'),
-            'first_name'   => trim(($params['first_name'] ?? '') . ' ' . ($params['last_name'] ?? '')),
+            'country'      => 'BJ',
+            'currency'     => 'XOF',
             'email'        => $params['email'] ?? '',
+            'payment_interface' => 'FLUTTER',
+            'otp'          => '',
+            'mode'         => '1',
+            'first_name'   => $params['first_name'] ?? 'Client',
+            'last_name'    => $params['last_name'] ?? 'FriPay',
+            'phoneNumber'  => $params['phone'],
+            'phoneNumberRight' => preg_replace('/^229/', '', (string) $params['phone']),
+            'reseau'       => strtoupper($params['operator']), // MTN | MOOV
+            'shop'         => $this->config('id'),
             'callback_info' => $params['description'] ?? 'Recharge wallet FriPay',
             'reference'    => $params['reference'],
         ];
 
         try {
+            // AUTHENTIFICATION PAR HEADER OBLIGATOIRE : FeexPay rejette
+            // désormais toute requête sans `Authorization: Bearer <token>`
+            // (HTTP 401 UNAUTHORIZED) — le token dans le body ne suffit
+            // plus. C'était la cause des recharges en échec 401. Le SDK
+            // officiel envoie d'ailleurs les deux (header + body).
             $response = Http::baseUrl($this->config('base_url'))
                 ->timeout(30)
-                ->asForm()
+                ->asJson()
+                ->withToken((string) $this->config('token'))
                 ->post('/api/transactions/requesttopay/integration', $payload);
         } catch (\Throwable $e) {
             Log::error('FeexPay requestToPay injoignable', ['error' => $e->getMessage()]);
@@ -138,6 +153,23 @@ class FeexpayConnector
             ];
         }
 
+        // 401 : identifiants marchands refusés (token/shop) — message lisible
+        // côté appli au lieu du JSON brut d'origine (qui fuyait en UI).
+        if ($response->status() === 401) {
+            Log::error('FeexPay 401 UNAUTHORIZED — vérifier FEEXPAY_ID / FEEXPAY_TOKEN', [
+                'body' => $this->errorBody($body, $response),
+            ]);
+
+            return [
+                'success'     => false,
+                'retryable'   => false,
+                'reference'   => $feexReference,
+                'payment_url' => null,
+                'status'      => null,
+                'message'     => 'Paiement momentanément indisponible (identifiants FeexPay refusés). Contactez le support si cela persiste.',
+            ];
+        }
+
         return [
             'success'     => false,
             'retryable'   => false,
@@ -166,9 +198,15 @@ class FeexpayConnector
         }
 
         try {
+            // Endpoint de statut aligné sur le SDK officiel (payforit_status) :
+            // GET /api/transactions/public/single/status/{reference}. L'ancien
+            // endpoint getrequesttopay répondait 404 (route inexistante côté
+            // FeexPay) — aucun statut n'était jamais récupéré. Header Bearer
+            // requis, comme pour requesttopay.
             $response = Http::baseUrl($this->config('base_url'))
                 ->timeout(20)
-                ->get('/api/transactions/getrequesttopay/integration/' . rawurlencode($feexpayReference));
+                ->withToken((string) $this->config('token'))
+                ->get('/api/transactions/public/single/status/' . rawurlencode($feexpayReference));
         } catch (\Throwable $e) {
             return [
                 'status'    => null,
@@ -192,18 +230,20 @@ class FeexpayConnector
         return [
             'status'    => strtoupper((string) ($body['status'] ?? '')) ?: null,
             'amount'    => isset($body['amount']) ? (float) $body['amount'] : null,
-            'clientNum' => $body['payer']['partyId'] ?? null,
+            // Le numéro du payeur vient en `phoneNumber` (pas `payer.partyId`,
+            // format de l'ancienne API MTN directe).
+            'clientNum' => $body['phoneNumber'] ?? null,
             'message'   => 'Statut récupéré',
         ];
     }
 
     /**
-     * Opérateurs mobile money supportés par la collecte FeexPay.
-     * (Celtiis Cash n'est pas couvert par requesttopay — voir README.)
+     * Opérateurs mobiles supportés par la collecte FeexPay.
+     * MTN MoMo, Moov Mobile et Celtiis Mobile (codes `reseau` FeexPay).
      */
     public static function supportedOperators(): array
     {
-        return ['MTN', 'MOOV'];
+        return ['MTN', 'MOOV', 'CELTIIS'];
     }
 
     private function config(string $key): ?string

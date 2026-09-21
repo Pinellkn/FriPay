@@ -76,16 +76,21 @@
                     <div class="bg-gray-900 rounded-2xl p-5 border border-gray-800 space-y-4">
                         <div>
                             <label class="text-sm text-gray-400 mb-2 block">Votre opérateur</label>
-                            <div class="grid grid-cols-2 gap-3">
+                            <div class="grid grid-cols-3 gap-3">
                                 <button type="button" @click="form.operator = 'MTN'"
                                         :class="form.operator === 'MTN' ? 'border-yellow-400 bg-yellow-400/10' : 'border-gray-700 bg-gray-800'"
                                         class="border-2 rounded-xl py-3 font-semibold transition">
-                                    MTN MoMo
+                                    MTN Mobile
                                 </button>
                                 <button type="button" @click="form.operator = 'MOOV'"
                                         :class="form.operator === 'MOOV' ? 'border-blue-400 bg-blue-400/10' : 'border-gray-700 bg-gray-800'"
                                         class="border-2 rounded-xl py-3 font-semibold transition">
-                                    Moov Money
+                                    Moov Mobile
+                                </button>
+                                <button type="button" @click="form.operator = 'CELTIIS'"
+                                        :class="form.operator === 'CELTIIS' ? 'border-orange-400 bg-orange-400/10' : 'border-gray-700 bg-gray-800'"
+                                        class="border-2 rounded-xl py-3 font-semibold transition">
+                                    Celtiis Mobile
                                 </button>
                             </div>
                         </div>

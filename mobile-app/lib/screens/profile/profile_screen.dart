@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:local_auth/local_auth.dart' show BiometricType;
 
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
@@ -33,7 +34,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _biometricEnabled = false;
   bool _biometricSupported = false;
   String _biometricName = 'biométrie';
-  IconData _biometricIcon = Icons.fingerprint_rounded;
+  // Types de biométrie réellement inscrits sur l'appareil : permettent
+  // d'afficher un BOUTON SÉPARÉ pour la reconnaissance faciale (Face ID)
+  // et pour l'empreinte digitale, comme demandé.
+  bool _hasFace = false;
+  bool _hasFingerprint = false;
   String _displayName = '…';
   String _displayPhone = '';
   String _initials = '·';
@@ -52,12 +57,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // d'un compte précédent (jamais activé par CE compte-ci) plutôt que
     // d'afficher le switch déjà activé à tort.
     final enabled = phone != null ? await BiometricService.instance.ensureOwnedBy(phone) : false;
-    
+
     String name = 'biométrie';
-    IconData icon = Icons.fingerprint_rounded;
+    var hasFace = false;
+    var hasFingerprint = false;
     if (supported) {
       name = await BiometricService.instance.getLocalizedName();
-      icon = await BiometricService.instance.getIcon();
+      final types = await BiometricService.instance.availableBiometrics();
+      hasFace = types.contains(BiometricType.face);
+      hasFingerprint = types.contains(BiometricType.fingerprint);
+      // Android 11+ peut masquer le type exact avant la 1re authentification :
+      // dans ce cas on montre les deux boutons, le prompt natif tranchera.
+      if (!hasFace && !hasFingerprint) {
+        hasFace = true;
+        hasFingerprint = true;
+      }
     }
 
     if (!mounted) return;
@@ -65,7 +79,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _biometricSupported = supported;
       _biometricEnabled = enabled;
       _biometricName = name;
-      _biometricIcon = icon;
+      _hasFace = hasFace;
+      _hasFingerprint = hasFingerprint;
     });
   }
 
@@ -90,16 +105,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _toggleBiometric(bool value) async {
+  /// Active/désactive le déverrouillage biométrique. Les deux méthodes
+  /// (reconnaissance faciale / empreinte) partagent le même réglage et le
+  /// même PIN mémorisé : les boutons sont séparés pour choisir LA méthode
+  /// de déverrouillage, pas pour activer deux systèmes indépendants.
+  Future<void> _toggleBiometric(bool value, {String? methodLabel}) async {
     if (!_biometricSupported) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Biométrie non disponible sur cet appareil.')),
       );
       return;
     }
+    final label = methodLabel ?? _biometricName;
     if (value) {
       final ok = await BiometricService.instance.authenticate(
-        reason: 'Confirmez votre identité pour activer le déverrouillage par $_biometricName',
+        reason: 'Confirmez votre identité pour activer le déverrouillage par $label',
       );
       if (!ok) {
         if (!mounted) return;
@@ -109,10 +129,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       // On a besoin du PIN en clair une seule fois pour l'enregistrer côté
-      // biométrie (protégé ensuite par l'empreinte) — sans ça, le futur
-      // bouton "Connexion par empreinte" n'aurait rien à utiliser.
+      // biométrie (protégé ensuite par la méthode choisie) — sans ça, le
+      // futur bouton "Connexion par biométrie" n'aurait rien à utiliser.
       if (!mounted) return;
-      final pin = await _promptCurrentPin();
+      final pin = await _promptCurrentPin(label);
       if (pin == null) return; // annulé
       final phone = await TokenStorage.instance.phoneNumber;
       if (phone == null) return;
@@ -145,13 +165,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted) return;
     setState(() => _biometricEnabled = value);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(value ? 'Déverrouillage par $_biometricName activé.' : 'Déverrouillage par $_biometricName désactivé.')),
+      SnackBar(content: Text(value ? 'Déverrouillage par $label activé.' : 'Déverrouillage biométrique désactivé.')),
     );
   }
 
   /// Petite boîte de dialogue à 5 cases pour confirmer le PIN actuel avant
   /// de l'associer à la biométrie. Retourne null si l'utilisateur annule.
-  Future<String?> _promptCurrentPin() {
+  Future<String?> _promptCurrentPin(String methodLabel) {
     final key = GlobalKey<OtpInputRowState>();
     return showDialog<String>(
       context: context,
@@ -162,7 +182,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Nécessaire une seule fois pour activer la connexion par $_biometricName.',
+              'Nécessaire une seule fois pour activer la connexion par $methodLabel.',
               style: const TextStyle(fontSize: 12.5, color: AppColors.mutedForeground),
             ),
             const SizedBox(height: 16),
@@ -280,74 +300,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 20),
             Text('Sécurité', style: GoogleFonts.sora(fontSize: 14, fontWeight: FontWeight.w700)),
             const SizedBox(height: 10),
-            // Bouton BIEN VISIBLE pour activer/désactiver le déverrouillage
-            // biométrique (Face ID / empreinte) — mis en avant en dehors du
-            // groupe de menu pour qu'il soit impossible à rater.
-            Container(
-              decoration: BoxDecoration(
-                gradient: _biometricEnabled ? null : AppColors.gradientEmerald,
-                color: _biometricEnabled ? AppColors.card : null,
-                borderRadius: BorderRadius.circular(16),
-                border: _biometricEnabled
-                    ? Border.all(color: AppColors.primary.withValues(alpha: 0.55), width: 1.2)
-                    : null,
-              ),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => _toggleBiometric(!_biometricEnabled),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _biometricIcon,
-                        size: 24,
-                        color: _biometricEnabled ? AppColors.primary : Colors.white,
+            // DEUX BOUTONS SÉPARÉS : reconnaissance faciale (Face ID) et
+            // empreinte digitale — l'utilisateur choisit sa méthode. Les deux
+            // méthodes partagent le même réglage/PIN : activer l'une après
+            // l'autre ne fait que remplacer la méthode de déverrouillage.
+            if (_biometricSupported) ...[
+              if (_hasFace)
+                _BiometricButton(
+                  icon: Icons.face_retouching_natural_rounded,
+                  title: _biometricEnabled && _biometricName.contains('faciale') || _biometricName == 'Face ID'
+                      ? 'Déverrouillage par reconnaissance faciale activé'
+                      : 'Déverrouillage par reconnaissance faciale',
+                  subtitle: _biometricEnabled && (_biometricName.contains('faciale') || _biometricName == 'Face ID')
+                      ? 'Appuyez pour désactiver'
+                      : 'Utilisez votre visage (Face ID) pour déverrouiller FriPay',
+                  enabled: _biometricEnabled && (_biometricName.contains('faciale') || _biometricName == 'Face ID'),
+                  onTap: () => _toggleBiometric(true, methodLabel: 'reconnaissance faciale'),
+                  onDisable: () => _toggleBiometric(false),
+                ),
+              if (_hasFace && _hasFingerprint) const SizedBox(height: 10),
+              if (_hasFingerprint)
+                _BiometricButton(
+                  icon: Icons.fingerprint_rounded,
+                  title: _biometricEnabled && (_biometricName.contains('empreinte') || _biometricName == 'biométrie')
+                      ? 'Déverrouillage par empreinte activé'
+                      : 'Déverrouillage par empreinte digitale',
+                  subtitle: _biometricEnabled && (_biometricName.contains('empreinte') || _biometricName == 'biométrie')
+                      ? 'Appuyez pour désactiver'
+                      : 'Utilisez votre empreinte pour déverrouiller FriPay',
+                  enabled: _biometricEnabled && (_biometricName.contains('empreinte') || _biometricName == 'biométrie'),
+                  onTap: () => _toggleBiometric(true, methodLabel: 'empreinte digitale'),
+                  onDisable: () => _toggleBiometric(false),
+                ),
+            ] else
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.no_accounts_rounded, size: 24, color: AppColors.mutedForeground),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Déverrouillage biométrique non disponible sur cet appareil',
+                        style: GoogleFonts.sora(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.mutedForeground),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _biometricEnabled
-                                  ? 'Déverrouillage par $_biometricName activé'
-                                  : 'Activer le déverrouillage par $_biometricName',
-                              style: GoogleFonts.sora(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w800,
-                                color: _biometricEnabled ? AppColors.foreground : Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              !_biometricSupported
-                                  ? 'Non disponible sur cet appareil'
-                                  : _biometricEnabled
-                                      ? 'Appuyez pour désactiver'
-                                      : 'Déverrouillez FriPay avec votre visage ou votre empreinte',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: _biometricEnabled
-                                    ? AppColors.mutedForeground
-                                    : Colors.white.withValues(alpha: 0.85),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        _biometricEnabled
-                            ? Icons.check_circle_rounded
-                            : Icons.arrow_forward_ios_rounded,
-                        size: _biometricEnabled ? 22 : 16,
-                        color: _biometricEnabled ? AppColors.primary : Colors.white.withValues(alpha: 0.85),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-            ),
             const SizedBox(height: 10),
             _MenuGroup(items: [
               _MenuItem(
@@ -407,6 +412,84 @@ class _MenuItem {
   final String label;
   final VoidCallback onTap;
   _MenuItem({required this.icon, required this.label, required this.onTap});
+}
+
+/// Bouton dédié à UNE méthode de déverrouillage biométrique (reconnaissance
+/// faciale OU empreinte) — les deux méthodes ont chacune leur bouton.
+/// État "activé" : contour vert + coche ; état inactif : dégradé emerald.
+class _BiometricButton extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool enabled;
+  final VoidCallback onTap;
+  final VoidCallback onDisable;
+
+  const _BiometricButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.enabled,
+    required this.onTap,
+    required this.onDisable,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: enabled ? null : AppColors.gradientEmerald,
+        color: enabled ? AppColors.card : null,
+        borderRadius: BorderRadius.circular(16),
+        border: enabled
+            ? Border.all(color: AppColors.primary.withValues(alpha: 0.55), width: 1.2)
+            : null,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: enabled ? onDisable : onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(icon, size: 24, color: enabled ? AppColors.primary : Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.sora(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: enabled ? AppColors.foreground : Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: enabled
+                            ? AppColors.mutedForeground
+                            : Colors.white.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                enabled ? Icons.check_circle_rounded : Icons.arrow_forward_ios_rounded,
+                size: enabled ? 22 : 16,
+                color: enabled ? AppColors.primary : Colors.white.withValues(alpha: 0.85),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MenuGroup extends StatelessWidget {

@@ -16,9 +16,9 @@ class AppOperator {
 }
 
 const List<AppOperator> operators = [
-  AppOperator(id: OperatorId.mtn, name: 'MTN MoMo', short: 'MTN'),
-  AppOperator(id: OperatorId.moov, name: 'Moov Money', short: 'Moov'),
-  AppOperator(id: OperatorId.celtiis, name: 'Celtiis Cash', short: 'Celtiis'),
+  AppOperator(id: OperatorId.mtn, name: 'MTN Mobile', short: 'MTN'),
+  AppOperator(id: OperatorId.moov, name: 'Moov Mobile', short: 'Moov'),
+  AppOperator(id: OperatorId.celtiis, name: 'Celtiis Mobile', short: 'Celtiis'),
   AppOperator(id: OperatorId.fripay, name: 'Solde FriPay', short: 'FriPay'),
 ];
 

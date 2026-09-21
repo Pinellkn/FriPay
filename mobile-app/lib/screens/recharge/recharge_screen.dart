@@ -20,7 +20,7 @@ import '../../widgets/section_header.dart';
 ///
 /// RECHARGE : branchée sur l'agrégateur FeexPay (POST /wallet/topup/feexpay).
 /// L'utilisateur reçoit un push sur son téléphone et valide avec son code
-/// mobile money (MTN/Moov) ; le solde FriPay est crédité À LA CONFIRMATION
+/// mobile (MTN/Moov/Celtiis) ; le solde FriPay est crédité À LA CONFIRMATION
 /// (suivi automatique du statut ici, + webhook côté serveur).
 ///
 /// RETRAIT : toujours sur POST /wallet/withdraw (cash chez un agent
@@ -118,9 +118,9 @@ class _RechargeScreenState extends State<RechargeScreen> with SingleTickerProvid
     final phoneCtrl = isDeposit ? _depositPhoneCtrl : _withdrawPhoneCtrl;
     final amountCtrl = isDeposit ? _depositAmountCtrl : _withdrawAmountCtrl;
 
-    // Recharge via FeexPay : MTN et Moov uniquement (collecte).
+    // Recharge via FeexPay : MTN, Moov et Celtiis (collecte).
     final networks = isDeposit
-        ? [OperatorId.mtn, OperatorId.moov]
+        ? [OperatorId.mtn, OperatorId.moov, OperatorId.celtiis]
         : [OperatorId.mtn, OperatorId.moov, OperatorId.celtiis];
 
     return Card(
@@ -129,7 +129,7 @@ class _RechargeScreenState extends State<RechargeScreen> with SingleTickerProvid
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(isDeposit ? 'Réseau (paiement mobile money)' : 'Réseau',
+            Text(isDeposit ? 'Réseau (paiement mobile)' : 'Réseau',
                 style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
               const SizedBox(height: 10),
               Wrap(
@@ -196,7 +196,7 @@ class _RechargeScreenState extends State<RechargeScreen> with SingleTickerProvid
                 const SizedBox(height: 10),
                 Text(
                   'Vous validez le paiement sur votre téléphone avec votre code '
-                  'mobile money. Le solde FriPay est crédité dès confirmation.',
+                  'mobile. Le solde FriPay est crédité dès confirmation.',
                   style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
                 ),
               ],
@@ -232,7 +232,7 @@ class _RechargeScreenState extends State<RechargeScreen> with SingleTickerProvid
       onConfirm: (pin) async {
         if (isDeposit) {
           // Recharge via FeexPay : le PIN FriPay protège l'ouverture de la
-          // demande ; le débit réel se fait sur le téléphone mobile money.
+          // demande ; le débit réel se fait sur le téléphone mobile.
           return _submitFeexpayTopup(amount);
         }
         try {
