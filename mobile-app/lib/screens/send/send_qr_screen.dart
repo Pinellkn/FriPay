@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
@@ -55,7 +56,8 @@ class _SendQrScreenState extends State<SendQrScreen> {
     if (qr == null || _downloading) return;
     setState(() => _downloading = true);
     try {
-      await QrDownloadService.instance.downloadToGallery(qr.qrCode);
+      // L'image QR encode l'URL web2 (/claim/{uuid}) — voir _resultCard.
+      await QrDownloadService.instance.downloadToGallery(qr.qrImageData);
       if (!mounted) return;
       _snack('QR téléchargé dans la galerie (album "FriPay").');
     } on QrDownloadException catch (e) {
@@ -70,6 +72,19 @@ class _SendQrScreenState extends State<SendQrScreen> {
       return;
     }
     if (mounted) setState(() => _downloading = false);
+  }
+
+  /// Ouvre la page web de retrait (web2) dans le navigateur — c'est la page
+  /// que verra le receveur qui scanne le QR avec une caméra externe.
+  Future<void> _openClaimUrl(GeneratedQr qr) async {
+    final url = Uri.tryParse(qr.qrImageData);
+    if (url == null) return;
+    try {
+      final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) _snack('Impossible d\'ouvrir le navigateur.');
+    } catch (_) {
+      if (mounted) _snack('Impossible d\'ouvrir le navigateur.');
+    }
   }
 
   Future<void> _generate() async {
@@ -251,7 +266,13 @@ class _SendQrScreenState extends State<SendQrScreen> {
               alignment: Alignment.center,
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
               child: QrImageView(
-                data: qr.qrCode,
+                // WEB2 : le QR encode l'URL de la page web de retrait
+                // (https://…/claim/{uuid}) et non plus le payload signé —
+                // une caméra externe ouvre la page web (blocs « Télécharger
+                // l'application » / « Recevoir sur mon compte mobile ») au
+                // lieu d'afficher du JSON. Le scan DANS l'appli reconnaît
+                // ce lien (QrRouter) et résout le payload automatiquement.
+                data: qr.qrImageData,
                 size: qrSize,
                 // Correction d'erreur Q (25 %) : QR moins dense, beaucoup
                 // plus fiable au scan caméra ET au téléversement d'une
@@ -312,6 +333,41 @@ class _SendQrScreenState extends State<SendQrScreen> {
                 ),
               ),
             ],
+            const SizedBox(height: 16),
+            // Lien web2 CLIQUABLE : un appui ouvre la page de retrait dans
+            // le navigateur (c'est ce lien qu'on peut aussi partager tel
+            // quel — WhatsApp, SMS… — à la place de l'image QR).
+            InkWell(
+              onTap: () => _openClaimUrl(qr),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(color: AppColors.muted, borderRadius: BorderRadius.circular(10)),
+                child: Row(
+                  children: [
+                    const Icon(Icons.link_rounded, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        qr.qrImageData,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          decorationColor: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.primary),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 18),
             Wrap(
               spacing: 8,
@@ -327,11 +383,13 @@ class _SendQrScreenState extends State<SendQrScreen> {
                 ),
                 OutlinedButton.icon(
                   onPressed: () {
-                    Clipboard.setData(ClipboardData(text: qr.qrCode));
-                    _snack('Contenu du QR copié');
+                    // On copie le LIEN web2 (partageable tel quel), pas le
+                    // payload signé devenu interne.
+                    Clipboard.setData(ClipboardData(text: qr.qrImageData));
+                    _snack('Lien de retrait copié');
                   },
                   icon: const Icon(Icons.copy_all_rounded, size: 16),
-                  label: const Text('Copier le QR'),
+                  label: const Text('Copier le lien'),
                 ),
                 TextButton.icon(
                   onPressed: _revoking ? null : _revoke,

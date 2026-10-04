@@ -6,6 +6,7 @@ use App\Models\Notification;
 use App\Models\PaymentLink;
 use App\Models\User;
 use App\Services\Connectors\FeexpayConnector;
+use App\Services\AuthService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -59,10 +60,13 @@ class PaymentLinkService
 
     /**
      * URL publique complète du lien (pour le partage).
+     *
+     * On privilégie l'hôte de la requête plutôt que APP_URL (http://localhost
+     * en dev) : l'URL doit être ouvrable par le PAYEUR sur un autre appareil.
      */
     public function publicUrl(Request $request, PaymentLink $link): string
     {
-        return rtrim(config('app.url') ?: $request->getSchemeAndHttpHost(), '/')
+        return rtrim($request->getSchemeAndHttpHost() ?: (string) config('app.url'), '/')
             . '/pay/' . $link->token;
     }
 
@@ -191,6 +195,71 @@ class PaymentLinkService
             ]);
 
             return true;
+        });
+    }
+
+    /**
+     * Paiement d'un lien DEPUIS LE SOLDE FRIPAY du payeur (parcours
+     * « Payer via FriPay » de web1 → deep link fripay://pay/{token}).
+     *
+     * Tout ou rien dans UNE transaction SQL : débit LEDGER du payeur
+     * (payment_link_id référencé pour la traçabilité) puis création du lien
+     * « paid » + crédit du créateur (markLinkPaid). Le PIN du payeur est
+     * vérifié AVANT tout mouvement.
+     *
+     * Exceptions : INSUFFICIENT_FUNDS, SELF_PAYMENT (le créateur ne peut
+     * pas payer son propre lien — sinon débit/crédit en boucle nulle),
+     * LINK_NOT_PAYABLE.
+     */
+    public function payWithWallet(PaymentLink $link, User $payer, string $pin, AuthService $auth): void
+    {
+        if (! $link->isPayable()) {
+            throw new \RuntimeException('LINK_NOT_PAYABLE');
+        }
+
+        // Auto-paiement refusé AVANT la vérification du PIN : inutile de
+        // demander un code pour un mouvement qui serait une boucle nulle
+        // (débit + crédit du même wallet).
+        if ($link->user_id === $payer->id) {
+            throw new \RuntimeException('SELF_PAYMENT');
+        }
+
+        if (! $auth->verifyPin($payer, $pin)) {
+            throw new \RuntimeException('INVALID_PIN');
+        }
+
+        DB::transaction(function () use ($link, $payer) {
+            // Débit LEDGER du payeur — source de vérité, jamais un solde
+            // modifié sans écriture traçable. Lance INSUFFICIENT_FUNDS si
+            // le solde ne couvre pas le montant (rien d'autre ne bouge).
+            $this->wallets->debit(
+                $payer->id,
+                (float) $link->amount,
+                null,
+                'payment_link_paid_by_wallet',
+                'Paiement du lien FriPay ' . substr($link->token, 0, 8) . '…',
+                null,
+                $link->id
+            );
+
+            // Crédit du créateur + lien « paid » + notification (idempotent,
+            // verrou pessimiste : une course webhook/polling ne double-crédite
+            // pas). Retourne false si un confirm concurrent a gagné la course —
+            // dans ce cas on restitue le débit du payeur pour ne rien lui
+            // prendre (le paiement mobile, lui, ne passerait jamais ici).
+            $paid = $this->markLinkPaid($link);
+
+            if (! $paid) {
+                $this->wallets->credit(
+                    $payer->id,
+                    (float) $link->amount,
+                    null,
+                    'payment_link_wallet_refund',
+                    'Restitution — lien déjà payé par un concurrent',
+                    null,
+                    $link->id
+                );
+            }
         });
     }
 

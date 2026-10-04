@@ -47,6 +47,13 @@ Schedule::job(new \App\Jobs\RefreshPendingTopups)
     ->withoutOverlapping()
     ->onOneServer();
 
+// Payouts FeexPay processing : confirmation finale (succeeded/failed) —
+// filet si le webhook n'arrive pas. FAILED => remboursement automatique.
+Schedule::job(new \App\Jobs\RefreshPendingPayouts)
+    ->everyTwoMinutes()
+    ->withoutOverlapping()
+    ->onOneServer();
+
 // FriPay Links en attente : vérification + passage automatique en `expired`.
 Schedule::command('links:refresh-pending')
     ->everyTwoMinutes()

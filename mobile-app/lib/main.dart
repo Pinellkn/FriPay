@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'screens/splash/splash_screen.dart';
 import 'services/api_config.dart';
+import 'services/deep_link_service.dart';
 import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
@@ -27,14 +31,48 @@ void main() async {
 
 /// Point d'entrée FriPay Mobile — portage fidèle de benin-money-hub-main.
 /// Démarre sur le SplashScreen (dégradé emerald) puis Connexion -> AppScaffold.
-class FripayApp extends StatelessWidget {
+class FripayApp extends StatefulWidget {
   const FripayApp({super.key});
+
+  @override
+  State<FripayApp> createState() => _FripayAppState();
+}
+
+class _FripayAppState extends State<FripayApp> {
+  StreamSubscription<Uri>? _linkSub;
+  late final AppLinks _appLinks = AppLinks();
+
+  @override
+  void initState() {
+    super.initState();
+    _listenDeepLinks();
+  }
+
+  /// Deep links `fripay://` (web1 « Payer via FriPay ») — [app_links] gère
+  /// à la fois l'URI de lancement (cold start) et celles reçues pendant que
+  /// l'app tourne, sur Android et iOS.
+  void _listenDeepLinks() {
+    _linkSub = _appLinks.uriLinkStream.listen(
+      (uri) => DeepLinkService.handleUri(uri),
+      onError: (_) {
+        // URI mal formée : on ignore silencieusement — un deep link ne doit
+        // jamais faire planter l'app.
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    unawaited(_linkSub?.cancel());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'FriPay',
       debugShowCheckedModeBanner: false,
+      navigatorKey: DeepLinkService.navigatorKey,
       theme: AppTheme.light,
       home: const SplashScreen(),
     );

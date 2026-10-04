@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../services/contact_service.dart';
 import '../../services/merchant_qr_service.dart';
+import '../../services/payment_link_service.dart';
 import '../../services/qr_download_service.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
@@ -27,6 +30,16 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
   late final TabController _tab = TabController(length: 2, vsync: this);
   final _whoCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
+  final _requestReasonCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    _whoCtrl.dispose();
+    _amountCtrl.dispose();
+    _requestReasonCtrl.dispose();
+    super.dispose();
+  }
 
   MerchantQr? _merchantQr;
   String _displayName = '…';
@@ -35,6 +48,11 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
   String? _qrError;
   bool _firstLoad = true;
   List<FripayContact> _contacts = [];
+
+  // Demande de paiement : un VRAI lien FriPay (web1, /pay/{token}) est
+  // créé et partagé — plus un simple snackbar factice.
+  bool _creatingRequest = false;
+  FripayLink? _createdRequest;
 
   void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
@@ -283,14 +301,75 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
     );
   }
 
+  /// Crée la demande de paiement : un lien FriPay réel (montant verrouillé
+  /// côté serveur) dont l'URL pointe vers la page web publique web1
+  /// (/pay/{token}) — cliquable, partageable, payable même sans l'appli.
+  Future<void> _createPaymentRequest() async {
+    final amount = int.tryParse(_amountCtrl.text) ?? 0;
+    if (amount < 100) {
+      _snack('Montant minimum : 100 FCFA');
+      return;
+    }
+    setState(() => _creatingRequest = true);
+    try {
+      final link = await PaymentLinkService.instance.create(
+        amount: amount,
+        description: _requestReasonCtrl.text.trim().isEmpty ? null : _requestReasonCtrl.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _creatingRequest = false;
+        _createdRequest = link;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _creatingRequest = false);
+      _snack(e.userMessage);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _creatingRequest = false);
+      _snack('Création de la demande impossible. Réessayez.');
+    }
+  }
+
+  /// Ouvre la page web1 du lien (aperçu de ce que verra le payeur).
+  Future<void> _openRequestLink(FripayLink link) async {
+    final url = Uri.tryParse(link.shareUrl ?? 'https://fripay.bj/pay/${link.token}');
+    if (url == null) return;
+    try {
+      final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) _snack("Impossible d'ouvrir le navigateur.");
+    } catch (_) {
+      if (mounted) _snack("Impossible d'ouvrir le navigateur.");
+    }
+  }
+
+  /// Partage le lien web1 (WhatsApp, SMS…) — avec le numéro du payeur en
+  /// tête de message s'il a été renseigné.
+  Future<void> _shareRequestLink(FripayLink link) async {
+    final url = link.shareUrl ?? 'https://fripay.bj/pay/${link.token}';
+    final who = _whoCtrl.text.trim();
+    final text = who.isEmpty
+        ? 'Paiement de ${formatFCFA(link.amount)} via FriPay : $url'
+        : 'Salut ! Envoie ${formatFCFA(link.amount)} via FriPay : $url';
+    try {
+      await SharePlus.instance.share(ShareParams(text: text, title: 'Demande de paiement FriPay'));
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: url));
+      if (mounted) _snack('Lien copié dans le presse-papiers');
+    }
+  }
+
   Widget _requestTab() {
+    final created = _createdRequest;
+    if (created != null) return _requestResult(created);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Numéro du payeur', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            const Text('Numéro du payeur (facultatif)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
             const SizedBox(height: 8),
             TextField(controller: _whoCtrl, decoration: const InputDecoration(hintText: '01 97 00 00 00')),
             const SizedBox(height: 8),
@@ -327,23 +406,132 @@ class _ReceiveScreenState extends State<ReceiveScreen> with SingleTickerProvider
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(hintText: '25 000'),
             ),
+            const SizedBox(height: 16),
+            const Text('Motif (facultatif)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _requestReasonCtrl,
+              maxLength: 255,
+              decoration: const InputDecoration(hintText: 'Ex : part du loyer, facture…', counterText: ''),
+            ),
             const SizedBox(height: 18),
-            ElevatedButton(
-              onPressed: () {
-                if (_whoCtrl.text.isEmpty || _amountCtrl.text.isEmpty) {
-                  _snack('Numéro et montant requis.');
-                  return;
-                }
-                _snack('Demande de ${formatFCFA(int.parse(_amountCtrl.text))} envoyée à ${_whoCtrl.text}');
-                _whoCtrl.clear();
-                _amountCtrl.clear();
-              },
-              child: const Text('Envoyer la demande'),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _creatingRequest ? null : _createPaymentRequest,
+                icon: _creatingRequest                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))                    : const Icon(Icons.link_rounded, size: 18),
+                label: Text(_creatingRequest ? 'Création…' : 'Générer le lien de paiement'),
+              ),
             ),
             const SizedBox(height: 10),
             const Text(
-              'Le payeur reçoit un SMS avec un lien court pour régler la demande depuis FriPay.',
+              'Un lien sécurisé sera créé : cliquable, il ouvre une page web '
+              'où le payeur règle via FriPay ou son compte mobile.',
               style: TextStyle(color: AppColors.mutedForeground, fontSize: 11.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Résultat : le lien web1 généré, affiché CLIQUABLE + partage.
+  Widget _requestResult(FripayLink link) {
+    final url = link.shareUrl ?? 'https://fripay.bj/pay/${link.token}';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const Icon(Icons.check_circle_rounded, size: 48, color: AppColors.primary),
+            const SizedBox(height: 10),
+            const Text('Demande créée !', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+            const SizedBox(height: 4),
+            Text(
+              'Partagez ce lien : il ouvre une page web où le payeur règle ${formatFCFA(link.amount)}.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.mutedForeground, fontSize: 12.5),
+            ),
+            const SizedBox(height: 16),
+            if (link.description != null && link.description!.isNotEmpty) ...[
+              Text(link.description!, style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+            ],
+            Text(formatFCFA(link.amount),
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.primary)),
+            const SizedBox(height: 14),
+            // LIEN CLIQUABLE → web1
+            InkWell(
+              onTap: () => _openRequestLink(link),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(color: AppColors.muted, borderRadius: BorderRadius.circular(10)),
+                child: Row(
+                  children: [
+                    const Icon(Icons.link_rounded, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        url,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          decorationColor: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.primary),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _shareRequestLink(link),
+                icon: const Icon(Icons.share_rounded, size: 18),
+                label: const Text('Partager le lien'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openRequestLink(link),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                    label: const Text('Ouvrir'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: url));
+                      if (mounted) _snack('Lien copié');
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 16),
+                    label: const Text('Copier'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => setState(() {
+                _createdRequest = null;
+                _amountCtrl.clear();
+                _requestReasonCtrl.clear();
+              }),
+              child: const Text('Nouvelle demande'),
             ),
           ],
         ),

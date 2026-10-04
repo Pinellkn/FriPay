@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\Http;
 use Ramsey\Uuid\Uuid;
 
 /**
- * Connecteur Celtiis Cash — via agrégateur PayDunya (API Disbursement).
+ * Connecteur Celtiis Mobile — via agrégateur PayDunya (API Disbursement).
  *
- * Celtiis Cash n'a pas d'API publique. Ce connecteur utilise l'API
+ * Celtiis Mobile n'a pas d'API publique. Ce connecteur utilise l'API
  * Disbursement de PayDunya (https://developers.paydunya.com).
  *
  * Docs PayDunya : https://developers.paydunya.com/doc/EN/api_deboursement
@@ -44,7 +44,7 @@ class CeltiisConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => false,
                 'transaction_id' => null,
-                'message'        => 'Celtiis Cash non configuré (clés API PayDunya manquantes)',
+                'message'        => 'Celtiis Mobile non configuré (clés API PayDunya manquantes)',
             ];
         }
 
@@ -76,7 +76,7 @@ class CeltiisConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => true,
                 'transaction_id' => null,
-                'message'        => 'Celtiis Cash injoignable : ' . $e->getMessage(),
+                'message'        => 'Celtiis Mobile injoignable : ' . $e->getMessage(),
             ];
         }
 
@@ -88,7 +88,7 @@ class CeltiisConnector implements TransferConnector
                 'success'        => true,
                 'retryable'      => false,
                 'transaction_id' => $referenceId,
-                'message'        => 'Transfert accepté par Celtiis Cash (via PayDunya)',
+                'message'        => 'Transfert accepté par Celtiis Mobile (via PayDunya)',
             ];
         }
 
@@ -103,7 +103,7 @@ class CeltiisConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => false,
                 'transaction_id' => null,
-                'message'        => 'Celtiis Cash a rejeté le transfert (HTTP ' . $status . ') : ' . $this->errorBody($response),
+                'message'        => 'Celtiis Mobile a rejeté le transfert (HTTP ' . $status . ') : ' . $this->errorBody($response),
             ];
         }
 
@@ -112,7 +112,7 @@ class CeltiisConnector implements TransferConnector
             'success'        => false,
             'retryable'      => true,
             'transaction_id' => null,
-            'message'        => 'Celtiis Cash indisponible (HTTP ' . $status . ')',
+            'message'        => 'Celtiis Mobile indisponible (HTTP ' . $status . ')',
         ];
     }
 
@@ -135,7 +135,7 @@ class CeltiisConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => true,
                 'transaction_id' => $referenceId,
-                'message'        => 'Celtiis Cash injoignable : ' . $e->getMessage(),
+                'message'        => 'Celtiis Mobile injoignable : ' . $e->getMessage(),
             ];
         }
 
@@ -154,7 +154,7 @@ class CeltiisConnector implements TransferConnector
             'success'        => false,
             'retryable'      => $response->status() >= 500 || $response->status() === 429,
             'transaction_id' => $referenceId,
-            'message'        => 'Statut Celtiis Cash indisponible (HTTP ' . $response->status() . ')',
+            'message'        => 'Statut Celtiis Mobile indisponible (HTTP ' . $response->status() . ')',
         ];
     }
 
@@ -177,7 +177,7 @@ class CeltiisConnector implements TransferConnector
 
             if (! $response->ok()) {
                 throw new \RuntimeException(
-                    'Échec d\'authentification Celtiis Cash (HTTP ' . $response->status() . ')'
+                    'Échec d\'authentification Celtiis Mobile (HTTP ' . $response->status() . ')'
                 );
             }
 

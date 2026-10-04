@@ -73,6 +73,13 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($request->ip());
         });
 
+        // Web1 (/pay/{token}) — vérification publique « ce numéro possède-t-il
+        // un compte FriPay ? » : booléen seul, mais plus souple que le claim
+        // (la page de paiement en fait une par tentative « Payer via FriPay »).
+        RateLimiter::for('phone-check', function (Request $request) {
+            return Limit::perMinute(30)->by($request->ip());
+        });
+
         // Webhook endpoints: 100 req/min per IP to prevent abuse
         RateLimiter::for('webhook', function (Request $request) {
             return Limit::perMinute(100)->by($request->ip());

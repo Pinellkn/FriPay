@@ -278,10 +278,12 @@ class WebhookController extends Controller
             return;
         }
 
-        $newStatus = match ($payload['status'] ?? '') {
-            'success', 'completed' => 'succeeded',
-            'failed', 'error' => 'failed',
-            'pending' => 'pending',
+        // Statuts acceptés en minuscules (webhook générique) et en
+        // MAJUSCULES (webhook FeexPay : SUCCESSFUL / FAILED / PENDING).
+        $newStatus = match (strtoupper((string) ($payload['status'] ?? ''))) {
+            'SUCCESS', 'COMPLETED', 'SUCCESSFUL' => 'succeeded',
+            'FAILED', 'ERROR' => 'failed',
+            'PENDING' => 'pending',
             default => null,
         };
 

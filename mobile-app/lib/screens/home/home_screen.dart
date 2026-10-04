@@ -26,6 +26,7 @@ import '../receive/receive_screen.dart';
 import '../recharge/recharge_screen.dart';
 import '../send/send_screen.dart';
 import '../wallets/wallets_screen.dart';
+import '../withdraw/withdrawal_screen.dart';
 
 /// Portage de src/routes/app.index.tsx — tableau de bord principal, branché
 /// sur GET /users/me (identité), GET /users/me/accounts (comptes liés),
@@ -210,7 +211,10 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 QuickActionButton(icon: Icons.compare_arrows_rounded, label: 'Envoyer', onTap: () => _push(context, const SendScreen())),
                 QuickActionButton(icon: Icons.qr_code_rounded, label: 'Recevoir', onTap: () => _push(context, const ReceiveScreen())),
-                QuickActionButton(icon: Icons.add_card_rounded, label: 'Recharge', onTap: () => _push(context, const RechargeScreen())),
+                // « Retrait » : solde FriPay → compte mobile lié. La recharge
+                // (sens inverse) se fait via le bouton « Recharge » de la
+                // carte de solde ci-dessus.
+                QuickActionButton(icon: Icons.south_rounded, label: 'Retrait', onTap: () => _push(context, const WithdrawalScreen())),
                 QuickActionButton(icon: Icons.receipt_long_rounded, label: 'Factures', onTap: () => _push(context, const BillsScreen())),
                 QuickActionButton(
                   icon: Icons.link_rounded,

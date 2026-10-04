@@ -2,10 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\LinkedAccount;
 use App\Models\Notification;
+use App\Models\Operator;
 use App\Models\Topup;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Connectors\FeexpayConnector;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -163,25 +167,111 @@ class TopupService
             return;
         }
 
-        $topup->update(['status' => 'completed', 'completed_at' => now()]);
+        // Tout ou rien : statut, ligne `transactions` et crédit du wallet
+        // dans UNE transaction SQL. Sans cela, un échec du crédit laissait
+        // le topup "completed" SANS argent crédité (bug constaté le 04/10).
+        // La transaction SQL retourne l'id de la ligne `transactions` créée,
+        // réutilisé pour la notification (FK related_transaction_id).
+        $transactionId = DB::transaction(function () use ($topup, $note): ?string {
+            // Traçabilité (§7 cahier des charges) : toute opération, y compris
+            // un cash-in, doit figurer dans la table `transactions` — celle-là
+            // même référencée par le ledger (FK wallet_ledger_entries
+            // .transaction_id). Null si l'utilisateur n'a aucun compte lié :
+            // le crédit prime sur la traçabilité (l'argent EST arrivé).
+            $transactionId = $this->ensureTopupTransaction($topup, $note);
 
-        // Crédit idempotent : l'index unique wallet_ledger_entries.transaction_id
-        // empêche tout double crédit même si le webhook est rejoué.
-        $this->wallets->credit(
-            $topup->user_id,
-            (float) $topup->amount,
-            $topup->id,
-            'feexpay_topup',
-            'Recharge ' . $topup->reference . ' via ' . $topup->operator_code . ' (' . $note . ')'
-        );
+            $topup->update(['status' => 'completed', 'completed_at' => now()]);
+
+            // Crédit idempotent : l'index unique wallet_ledger_entries
+            // .transaction_id empêche tout double crédit même si le webhook
+            // est rejoué (dès qu'une ligne `transactions` a pu être créée).
+            $this->wallets->credit(
+                $topup->user_id,
+                (float) $topup->amount,
+                $transactionId,
+                'feexpay_topup',
+                'Recharge ' . $topup->reference . ' via ' . $topup->operator_code . ' (' . $note . ')'
+            );
+
+            return $transactionId;
+        });
 
         $this->notify(
             $topup->user_id,
             'Recharge réussie',
             'Votre recharge de ' . number_format((float) $topup->amount, 0, ',', ' ')
             . ' FCFA a été créditée sur votre compte FriPay.',
-            $topup->id
+            $transactionId
         );
+    }
+
+    /**
+     * Crée (ou retrouve) la ligne `transactions` d'un topup confirmé.
+     *
+     * La table `transactions` est orientée transfert (sender/recipient non
+     * nullables) : un cash-in y est représenté comme un dépôt self-service —
+     * l'utilisateur est l'expéditeur, son compte mobile money lié est le
+     * compte source (à défaut : n'importe lequel de ses comptes, la colonne
+     * étant NOT NULL), lui-même est le destinataire. `metadata.kind = topup`
+     * permet de filtrer ces dépôts côté app et back-office.
+     *
+     * Idempotence : `reference` (celle du topup, unique) et
+     * `idempotency_key` servent de clé de réutilisation — une course entre
+     * deux confirmations simultanées retombe sur la ligne déjà créée.
+     */
+    private function ensureTopupTransaction(Topup $topup, string $note): ?string
+    {
+        $existing = Transaction::where('reference', $topup->reference)->first();
+        if ($existing) {
+            return (string) $existing->id;
+        }
+
+        $operatorId = Operator::where('code', $topup->operator_code)->value('id');
+        $account = LinkedAccount::where('user_id', $topup->user_id)
+            ->when($operatorId !== null, fn ($q) => $q->where('operator_id', $operatorId))
+            ->orderByDesc('is_primary')
+            ->first()
+            ?? LinkedAccount::where('user_id', $topup->user_id)->orderByDesc('is_primary')->first();
+
+        // Aucun compte mobile money lié (paiement depuis un numéro non lié) :
+        // la colonne NOT NULL sender_account_id interdit la ligne `transactions`.
+        // On crédite quand même (transaction_id = null, comme manual_topup) —
+        // l'argent reçu ne doit JAMAIS être perdu faute de traçabilité.
+        if (! $account) {
+            return null;
+        }
+
+        try {
+            $transaction = Transaction::create([
+                'reference'           => $topup->reference,
+                'idempotency_key'     => 'topup:' . $topup->id,
+                'sender_user_id'      => $topup->user_id,
+                'sender_account_id'   => $account?->id,
+                'recipient_phone'     => (string) $topup->phone_number,
+                'recipient_operator_id' => $operatorId,
+                'amount'              => $topup->amount,
+                'currency'            => 'XOF',
+                'fee_amount'          => 0,
+                'total_debited'       => 0, // cash-in : le wallet est CRÉDITÉ, rien n'est débité de FriPay
+                'rail_used'           => 'feexpay',
+                'aggregator_provider' => 'feexpay',
+                'status'              => 'succeeded',
+                'external_reference'  => $topup->provider_reference,
+                'client_type_snapshot' => User::find($topup->user_id)?->client_type,
+                'metadata'            => ['kind' => 'topup', 'topup_id' => $topup->id, 'note' => $note],
+                'initiated_at'        => $topup->created_at ?? now(),
+                'completed_at'        => now(),
+            ]);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Course perdue : une confirmation concurrente a créé la ligne.
+            if ($retry = Transaction::where('reference', $topup->reference)->first()) {
+                return (string) $retry->id;
+            }
+
+            throw $e;
+        }
+
+        return (string) $transaction->id;
     }
 
     private function markFailed(Topup $topup, string $reason): void
@@ -196,12 +286,17 @@ class TopupService
             $topup->user_id,
             'Recharge échouée',
             'Votre recharge de ' . number_format((float) $topup->amount, 0, ',', ' ')
-            . ' FCFA n\'a pas abouti : ' . $reason,
-            $topup->id
+            . ' FCFA n\'a pas abouti : ' . $reason
         );
     }
 
-    private function notify(string $userId, string $title, string $body, string $topupId): void
+    /**
+     * Notification in-app. [related_transaction_id] doit référencer la table
+     * `transactions` (FK) — jamais l'id d'un topup (bug du 04/10 : la FK
+     * rejetait l'insert APRÈS le crédit, d'où recharge créditée mais aucune
+     * notification).
+     */
+    private function notify(string $userId, string $title, string $body, ?string $transactionId = null): void
     {
         Notification::create([
             'user_id'                => $userId,
@@ -209,7 +304,7 @@ class TopupService
             'channel'                => 'in_app',
             'title'                  => $title,
             'body'                   => $body,
-            'related_transaction_id' => $topupId,
+            'related_transaction_id' => $transactionId,
             'read'                   => false,
         ]);
     }

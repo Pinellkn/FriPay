@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
+import '../../services/offline_qr_service.dart';
 import '../../services/qr_router.dart';
 import '../../theme/app_colors.dart';
 import 'qr_scan_screen.dart';
@@ -44,10 +46,45 @@ class _ScanHubScreenState extends State<ScanHubScreen> {
         // scan suivant (usage marchand : enchaîner les clients).
         if (mounted) setState(() {});
       case QrRouteKind.money:
+        // Deux formes possibles : payload signé (historique) ou URL web2
+        // (/claim/{uuid}) — l'image QR encode désormais le lien web. Dans ce
+        // cas on résout d'abord le payload signé via POST /qr/resolve, puis
+        // on enchaîne la réception « coffre » normale.
+        var codeForReceive = code;
+        final claimUuid = route.payload['claim_uuid'] as String?;
+        if (claimUuid != null) {
+          try {
+            final resolved = await OfflineQrService.instance.resolve(claimUuid);
+            codeForReceive = resolved['qr_code'] as String? ?? code;
+          } on ApiException catch (e) {
+            if (!mounted) return;
+            await showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('QR introuvable'),
+                content: Text(e.userMessage),
+                actions: [ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+              ),
+            );
+            return;
+          } catch (_) {
+            if (!mounted) return;
+            await showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Erreur'),
+                content: const Text("Impossible de résoudre ce QR pour le moment."),
+                actions: [ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+              ),
+            );
+            return;
+          }
+        }
         // ReceiveQrScreen gère lui-même le scan ; on lui passe directement
-        // le contenu déjà scanné via la route « pre-scanned ».
+        // le contenu (payload signé) via la route « pre-scanned ».
+        if (!mounted) return;
         await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => ReceiveQrScreen(preScannedCode: code)),
+          MaterialPageRoute(builder: (_) => ReceiveQrScreen(preScannedCode: codeForReceive)),
         );
         if (mounted) setState(() {});
       case QrRouteKind.unknown:

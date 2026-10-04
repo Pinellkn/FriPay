@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/payment_link_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/formatters.dart';
 
 /// Fripay Link — écran de création d'un lien de paiement partageable.
 ///
@@ -112,13 +113,115 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
   String _formatAmount(int amount) =>
       '${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]} ')} FCFA';
 
+  // ── Historique « Mes liens » ─────────────────────────────────────────
+  bool _loadingHistory = false;
+  String? _historyError;
+  List<FripayLink> _history = [];
+
+  /// GET /payment-links — les liens du créateur (statut, montant, motif).
+  Future<void> _loadHistory() async {
+    setState(() {
+      _loadingHistory = true;
+      _historyError = null;
+    });
+    try {
+      final links = await PaymentLinkService.instance.history();
+      if (!mounted) return;
+      setState(() {
+        _history = links;
+        _loadingHistory = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingHistory = false;
+        _historyError = _errorMessage(e);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Fripay Link')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: _createdLink == null ? _buildForm() : _buildResult(_createdLink!),
+      body: DefaultTabController(
+        length: 2,
+        child: Column(
+          children: [
+            TabBar(
+              // L'onglet « Mes liens » recharge à chaque ouverture : le
+              // statut (payé / expiré) évolue côté serveur en continu.
+              onTap: (i) {
+                if (i == 1) _loadHistory();
+              },
+              labelColor: AppColors.primary,
+              unselectedLabelColor: AppColors.mutedForeground,
+              indicatorColor: AppColors.primary,
+              tabs: const [Tab(text: 'Nouveau lien'), Tab(text: 'Mes liens')],
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  // Le contenu de création doit rester scrollable dans la
+                  // TabBarView (le SingleChildScrollView d'origine y reste).
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: _createdLink == null ? _buildForm() : _buildResult(_createdLink!),
+                  ),
+                  _historyTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _historyTab() {
+    if (_loadingHistory) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_historyError != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_historyError!, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.destructive, fontSize: 13)),
+            const SizedBox(height: 12),
+            OutlinedButton(onPressed: _loadHistory, child: const Text('Réessayer')),
+          ],
+        ),
+      );
+    }
+    if (_history.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Text(
+            'Aucun lien pour le moment.\nCréez-en un depuis l\'onglet « Nouveau lien ».',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.mutedForeground),
+          ),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadHistory,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        itemCount: _history.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        itemBuilder: (context, i) {
+          final link = _history[i];
+          return _HistoryTile(
+            link: link,
+            url: link.shareUrl ?? 'https://fripay.bj/pay/${link.token}',
+            onOpen: () => _openLink(link),
+            onCopy: () => _copyLink(link),
+            onShare: () => _share(link),
+          );
+        },
       ),
     );
   }
@@ -312,6 +415,119 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
           child: const Text('Créer un autre lien'),
         ),
       ],
+    );
+  }
+}
+
+/// Tuile d'historique : montant, statut (payé / expiré / annulé / en
+/// attente), motif, et actions ouvrir/copier/partager sur le lien web1.
+class _HistoryTile extends StatelessWidget {
+  final FripayLink link;
+  final String url;
+  final VoidCallback onOpen;
+  final VoidCallback onCopy;
+  final VoidCallback onShare;
+
+  const _HistoryTile({
+    required this.link,
+    required this.url,
+    required this.onOpen,
+    required this.onCopy,
+    required this.onShare,
+  });
+
+  ({String label, Color color, IconData icon}) get _status {
+    if (link.isPaid) return (label: 'Payé', color: AppColors.primary, icon: Icons.check_circle_rounded);
+    if (link.expired) return (label: 'Expiré', color: AppColors.mutedForeground, icon: Icons.schedule_rounded);
+    switch (link.status) {
+      case 'cancelled':
+        return (label: 'Annulé', color: AppColors.destructive, icon: Icons.cancel_rounded);
+      case 'paid':
+        return (label: 'Payé', color: AppColors.primary, icon: Icons.check_circle_rounded);
+      default:
+        return (label: 'En attente', color: AppColors.accent, icon: Icons.hourglass_top_rounded);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final st = _status;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  formatFCFA(link.amount),
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+              ),
+              Icon(st.icon, size: 15, color: st.color),
+              const SizedBox(width: 4),
+              Text(st.label, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: st.color)),
+            ],
+          ),
+          if (link.description != null && link.description!.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(link.description!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.mutedForeground, fontSize: 12.5)),
+          ],
+          const SizedBox(height: 10),
+          // Lien web1 cliquable (copie rapide, ouverture navigateur, partage).
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: onOpen,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.link_rounded, size: 14, color: AppColors.primary),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            url.replaceFirst(RegExp(r'^https?://'), ''),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: AppColors.primary,
+                              decoration: TextDecoration.underline,
+                              decorationColor: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Copier',
+                visualDensity: VisualDensity.compact,
+                onPressed: onCopy,
+                icon: const Icon(Icons.copy_rounded, size: 16, color: AppColors.mutedForeground),
+              ),
+              IconButton(
+                tooltip: 'Partager',
+                visualDensity: VisualDensity.compact,
+                onPressed: onShare,
+                icon: const Icon(Icons.share_rounded, size: 16, color: AppColors.primary),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

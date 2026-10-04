@@ -26,6 +26,20 @@ class QrRouter {
   /// avec un message d'erreur affichable.
   static QrRoute route(String rawContent) {
     final content = rawContent.trim();
+
+    // URL web2 : l'image QR argent encode désormais le lien de la page web
+    // publique de retrait (https://…/claim/{uuid}) pour que n'importe
+    // quelle caméra externe ouvre la page web. Un scan DEPUIS L'APPLI
+    // reconnaît ce lien et résout le payload signé via POST /qr/resolve
+    // (voir ScanHubScreen) pour enchaîner le parcours « coffre » normal.
+    final claimMatch = RegExp(r'/claim/([0-9a-fA-F-]{8,64})').firstMatch(content);
+    if ((content.startsWith('http://') || content.startsWith('https://')) && claimMatch != null) {
+      return QrRoute._(QrRouteKind.money, content, {
+        'claim_url': content,
+        'claim_uuid': claimMatch.group(1),
+      });
+    }
+
     try {
       final outer = jsonDecode(content);
       if (outer is Map<String, dynamic> &&

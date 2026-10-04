@@ -1,17 +1,23 @@
 import 'api_client.dart';
+import 'api_config.dart';
 
 /// QR Code "argent" généré par l'envoyeur — miroir de la réponse de
 /// OfflineQrController::generate (POST /qr/generate). Contient le montant,
 /// réservé (débité) dès la génération, et un code de validation à 5
 /// chiffres si le destinataire n'a pas de compte FriPay (§6.e).
 class GeneratedQr {
-  final String qrCode; // contenu JSON signé à encoder dans le QR
+  final String qrCode; // contenu JSON signé (référence interne)
   final String uuid;
   final int amount;
   final String currency;
   final String? expiresAt;
   final bool? hasRecipientAccount;
   final String? externalValidationCode;
+
+  /// URL publique de la page web de retrait (web2, /claim/{uuid}) : c'est
+  /// CE lien qui est encodé dans l'image QR pour que n'importe quelle
+  /// caméra ouvre la page web au lieu d'afficher du JSON brut.
+  final String? claimUrl;
 
   /// Numéro Fripay de l'ENVOYEUR (constituant du QR, cahier des charges).
   final String? senderFripayNumber;
@@ -24,6 +30,7 @@ class GeneratedQr {
     this.expiresAt,
     this.hasRecipientAccount,
     this.externalValidationCode,
+    this.claimUrl,
     this.senderFripayNumber,
   });
 
@@ -35,8 +42,23 @@ class GeneratedQr {
         expiresAt: j['expires_at'] as String?,
         hasRecipientAccount: j['has_recipient_account'] as bool?,
         externalValidationCode: j['external_validation_code'] as String?,
+        claimUrl: j['claim_url'] as String?,
         senderFripayNumber: j['sender_fripay_number'] as String?,
       );
+
+  /// Ce qui doit être encodé dans l'IMAGE du QR : l'URL web2 (une caméra
+  /// externe ouvre la page de retrait au lieu d'afficher du JSON). Si le
+  /// backend n'a pas renvoyé claim_url, on la reconstruit localement
+  /// (la route /claim/{uuid} existe côté serveur).
+  String get qrImageData {
+    if (claimUrl != null && claimUrl!.isNotEmpty) return claimUrl!;
+    return fallbackClaimUrl(uuid);
+  }
+
+  /// URL web2 reconstruite localement si le backend ne l'a pas renvoyée
+  /// (ex : serveur de dev sans la nouvelle version).
+  static String fallbackClaimUrl(String uuid) =>
+      '${ApiConfig.gatewayRootUrl}/claim/$uuid';
 }
 
 /// Résumé d'un QR "coffre" — pour "mine()" (mes QR envoyés actifs).
@@ -116,6 +138,15 @@ class OfflineQrService {
   /// stocké dans son "coffre" (status devient "received").
   Future<Map<String, dynamic>> receive(String qrContent) async {
     final res = await _api.post('/qr/receive', body: {'qr_content': qrContent});
+    return res as Map<String, dynamic>;
+  }
+
+  /// POST /qr/resolve — récupère le payload signé d'un QR argent à partir
+  /// de son UUID. Utilisé quand le QR scanné est une URL web2
+  /// (/claim/{uuid}) plutôt que le payload signé : l'app extrait l'UUID,
+  /// résout le contenu, puis enchaîne le parcours /qr/receive normal.
+  Future<Map<String, dynamic>> resolve(String uuid) async {
+    final res = await _api.post('/qr/resolve', body: {'uuid': uuid});
     return res as Map<String, dynamic>;
   }
 

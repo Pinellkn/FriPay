@@ -110,7 +110,16 @@ class TransferController extends Controller
         $this->transferService->processPendingTransfers();
 
         $query = Transaction::where('sender_user_id', $request->user()->id)
-            ->with('recipientOperator');
+            ->with('recipientOperator')
+            // Les recharges (cash-in FeexPay) sont des dépôts, pas des
+            // envois : elles ont leur propre endpoint
+            // (GET /wallet/topup/feexpay) — les exclure évite de les
+            // afficher comme des transferts sortants dans l'app.
+            // NB : metadata est souvent NULL (JSON_CONTAINS y renvoie NULL,
+            // donc où"n'exclut que les lignes explicitement kind=topup.
+            ->where(fn ($q) => $q
+                ->whereNull('metadata')
+                ->orWhereJsonDoesntContain('metadata->kind', 'topup'));
 
         if ($request->has('status')) {
             $query->where('status', $request->status);

@@ -15,6 +15,9 @@ analyzer:
     - web/**
     - windows/**
     - macos/**
+    # Archive de travail hors app (anciens patches) : pas compilée, pas
+    # analysée — elle ne fait pas partie de package:fripay_app.
+    - mobile-changes/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

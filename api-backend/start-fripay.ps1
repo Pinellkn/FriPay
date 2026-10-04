@@ -140,6 +140,28 @@ $p1 = Start-Process -NoNewWindow -FilePath $PHP -ArgumentList "-S 0.0.0.0:8080 -
 Start-Sleep 2
 Write-Host " OK (PID: $($p1.Id))" -ForegroundColor Green
 
+# Planificateur Laravel (schedule:work) — rejoue la verification des
+# recharges en attente toutes les 2 min (RefreshPendingTopups). Sans lui,
+# une recharge confirmee chez FeexPay mais non confirmee par l'app (polling
+# arrete trop tot, webhook inaccessible en local) reste bloquee en
+# "processing" et le wallet n'est jamais credite (bug constate le 04/10).
+$schedRunning = Get-CimInstance Win32_Process -Filter "Name='php.exe'" |
+    Where-Object { $_.CommandLine -like '*schedule:work*' }
+if ($schedRunning) {
+    Write-Host "[6/6] Planificateur deja demarre (PID: $($schedRunning.ProcessId -join ','))" -ForegroundColor Green
+} else {
+    Write-Host "[6/6] Planificateur Laravel (schedule:work)..." -NoNewline
+    Start-Process -NoNewWindow -FilePath $PHP -ArgumentList "artisan schedule:work" -WorkingDirectory $APP
+    Start-Sleep 2
+    $schedRunning = Get-CimInstance Win32_Process -Filter "Name='php.exe'" |
+        Where-Object { $_.CommandLine -like '*schedule:work*' }
+    if ($schedRunning) {
+        Write-Host " OK (PID: $($schedRunning.ProcessId -join ','))" -ForegroundColor Green
+    } else {
+        Write-Host " ECHEC - les recharges en attente ne seront pas re-verifiees automatiquement" -ForegroundColor Red
+    }
+}
+
 Write-Host "`n=== FriPay est demarre ! ===" -ForegroundColor Green
 
 # Warm-up : le serveur PHP integre (php -S) est mono-thread et le tout

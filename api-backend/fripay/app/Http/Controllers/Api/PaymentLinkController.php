@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\InitiatePaymentLinkCharge;
 use App\Jobs\RefreshPaymentLinkStatus;
 use App\Models\PaymentLink;
+use App\Services\AuthService;
 use App\Services\PaymentLinkService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,7 +24,10 @@ use Illuminate\Support\Facades\Cache;
  */
 class PaymentLinkController extends Controller
 {
-    public function __construct(private readonly PaymentLinkService $links) {}
+    public function __construct(
+        private readonly PaymentLinkService $links,
+        private readonly AuthService $authService,
+    ) {}
 
     /**
      * POST /api/v1/payment-links — (auth Sanctum)
@@ -151,6 +155,59 @@ class PaymentLinkController extends Controller
             'accepted' => true,
             'message'  => 'Demande acceptée — validez sur votre téléphone (' . $result['operator'] . ').',
         ], 202);
+    }
+
+    /**
+     * POST /api/v1/payment-links/{token}/pay-wallet — (auth Sanctum).
+     * Body : { pin: string }
+     *
+     * Paiement d'un lien DEPUIS LE SOLDE FRIPAY du payeur connecté —
+     * parcours « Payer via FriPay » de web1 : la page vérifie que le numéro
+     * possède un compte puis ouvre l'app via fripay://pay/{token}, qui
+     * atterrit sur l'écran de paiement in-app (LinkPayScreen). Le créateur
+     * ne peut pas payer son propre lien.
+     *
+     * @response status=200 {"status":"paid","amount":5000,"creator":"Alice R."}
+     * @response status=401 {"error":"INVALID_PIN"}
+     * @response status=409 {"error":"SELF_PAYMENT"}
+     * @response status=422 {"error":"INSUFFICIENT_FUNDS"}
+     */
+    public function payWithWallet(Request $request, string $token): JsonResponse
+    {
+        $validated = $request->validate([
+            'pin' => ['required', 'string', 'min:4', 'max:8'],
+        ]);
+
+        $link = PaymentLink::where('token', $token)->first();
+
+        if (! $link) {
+            return $this->errorResponse(
+                'LINK_NOT_FOUND', 'Lien introuvable', 404,
+                "Ce lien de paiement n'existe pas ou a été supprimé.", $request
+            );
+        }
+
+        try {
+            $this->links->payWithWallet($link, $request->user(), $validated['pin'], $this->authService);
+        } catch (\RuntimeException $e) {
+            [$title, $status, $detail] = match ($e->getMessage()) {
+                'INVALID_PIN' => ['PIN invalide', 401, 'Le code PIN est incorrect.'],
+                'SELF_PAYMENT' => ['Paiement impossible', 409, "Vous ne pouvez pas payer votre propre lien."],
+                'INSUFFICIENT_FUNDS' => ['Solde insuffisant', 422, 'Votre solde FriPay est insuffisant pour payer ce lien.'],
+                'LINK_NOT_PAYABLE' => ['Lien non payable', 410, 'Ce lien ne peut plus être payé (déjà payé, annulé ou expiré).'],
+                default => ['Erreur', 500, 'Une erreur est survenue.'],
+            };
+
+            return $this->errorResponse($e->getMessage(), $title, $status, $detail, $request);
+        }
+
+        $link->refresh();
+
+        return response()->json([
+            'status'  => $link->status,
+            'amount'  => (float) $link->amount,
+            'creator' => $link->creatorDisplayName(),
+        ]);
     }
 
     /**

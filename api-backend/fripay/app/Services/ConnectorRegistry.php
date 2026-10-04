@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\TransferConnector;
 use App\Models\Transaction;
+use App\Services\Connectors\FeexpayPayoutConnector;
 
 /**
  * Résout le connecteur adapté à une transaction.
@@ -23,6 +24,10 @@ class ConnectorRegistry
     {
         $connectors = config('fripay.connectors', []);
 
+        // Connecteur natif résolu mais non configuré (clés API vides) :
+        // gardé de côté pour le repli agrégateur ci-dessous.
+        $candidate = null;
+
         // 1. Par fournisseur déclaré sur le corridor (rail / agrégateur).
         //    La casse est normalisée : les clés de config sont en majuscules
         //    (MTN, MOOV, ...) alors que la base peut stocker des minuscules.
@@ -32,7 +37,11 @@ class ConnectorRegistry
             $connector = app($connectors[$provider]);
 
             if ($connector instanceof TransferConnector) {
-                return $connector;
+                if ($connector->isConfigured()) {
+                    return $connector;
+                }
+
+                $candidate = $connector;
             }
         }
 
@@ -43,10 +52,27 @@ class ConnectorRegistry
             $connector = app($connectors[$operator]);
 
             if ($connector instanceof TransferConnector) {
-                return $connector;
+                if ($connector->isConfigured()) {
+                    return $connector;
+                }
+
+                $candidate = $connector;
             }
         }
 
-        return null;
+        // 3. Repli agrégateur FeexPay : si aucun connecteur natif n'est
+        //    configuré (cas actuel — clés MTN/Moov/Celtiis vides) et que le
+        //    payout FeexPay est disponible (identifiants marchands présents),
+        //    les envois partent via l'agrégateur. Les API natives reprennent
+        //    automatiquement la main le jour où leurs clés sont renseignées.
+        if (! $candidate?->isConfigured()) {
+            $feexpay = app(FeexpayPayoutConnector::class);
+
+            if ($feexpay instanceof TransferConnector && $feexpay->isConfigured()) {
+                return $feexpay;
+            }
+        }
+
+        return $candidate;
     }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/deep_link_service.dart';
 import '../screens/history/history_screen.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/profile/profile_screen.dart';
@@ -23,6 +24,17 @@ class AppScaffold extends StatefulWidget {
 
 class _AppScaffoldState extends State<AppScaffold> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Deep link fripay://pay/{token} arrivé pendant le splash/login (cold
+    // start) : il a été mémorisé — on ouvre l'écran de paiement maintenant
+    // que la session est établie et le navigator prêt.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) DeepLinkService.consumePending(context);
+    });
+  }
 
   static const _screens = [
     HomeScreen(),

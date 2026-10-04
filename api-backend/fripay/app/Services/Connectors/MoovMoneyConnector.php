@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Http;
 use Ramsey\Uuid\Uuid;
 
 /**
- * Connecteur Moov Money — API Moov Africa Bénin (Disbursements).
+ * Connecteur Moov Mobile — API Moov Africa Bénin (Disbursements).
  *
  * Docs : https://moov-africa.bj (portail marchand Moov Africa Bénin)
  * SDK reference : https://github.com/v1p3r75/moov-money-api-php-sdk
@@ -42,7 +42,7 @@ class MoovMoneyConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => false,
                 'transaction_id' => null,
-                'message'        => 'Moov Money non configuré (clés API manquantes)',
+                'message'        => 'Moov Mobile non configuré (clés API manquantes)',
             ];
         }
 
@@ -74,7 +74,7 @@ class MoovMoneyConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => true,
                 'transaction_id' => null,
-                'message'        => 'Moov Money injoignable : ' . $e->getMessage(),
+                'message'        => 'Moov Mobile injoignable : ' . $e->getMessage(),
             ];
         }
 
@@ -86,7 +86,7 @@ class MoovMoneyConnector implements TransferConnector
                 'success'        => true,
                 'retryable'      => false,
                 'transaction_id' => $referenceId,
-                'message'        => 'Transfert accepté par Moov Money',
+                'message'        => 'Transfert accepté par Moov Mobile',
             ];
         }
 
@@ -101,7 +101,7 @@ class MoovMoneyConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => false,
                 'transaction_id' => null,
-                'message'        => 'Moov Money a rejeté le transfert (HTTP ' . $status . ') : ' . $this->errorBody($response),
+                'message'        => 'Moov Mobile a rejeté le transfert (HTTP ' . $status . ') : ' . $this->errorBody($response),
             ];
         }
 
@@ -110,12 +110,12 @@ class MoovMoneyConnector implements TransferConnector
             'success'        => false,
             'retryable'      => true,
             'transaction_id' => null,
-            'message'        => 'Moov Money indisponible (HTTP ' . $status . ')',
+            'message'        => 'Moov Mobile indisponible (HTTP ' . $status . ')',
         ];
     }
 
     /**
-     * Interroge le statut d'un transfert soumis à Moov Money.
+     * Interroge le statut d'un transfert soumis à Moov Mobile.
      */
     public function checkStatus(string $referenceId): array
     {
@@ -133,7 +133,7 @@ class MoovMoneyConnector implements TransferConnector
                 'success'        => false,
                 'retryable'      => true,
                 'transaction_id' => $referenceId,
-                'message'        => 'Moov Money injoignable : ' . $e->getMessage(),
+                'message'        => 'Moov Mobile injoignable : ' . $e->getMessage(),
             ];
         }
 
@@ -152,12 +152,12 @@ class MoovMoneyConnector implements TransferConnector
             'success'        => false,
             'retryable'      => $response->status() >= 500 || $response->status() === 429,
             'transaction_id' => $referenceId,
-            'message'        => 'Statut Moov Money indisponible (HTTP ' . $response->status() . ')',
+            'message'        => 'Statut Moov Mobile indisponible (HTTP ' . $response->status() . ')',
         ];
     }
 
     /**
-     * Token OAuth2 Moov Money, mis en cache jusqu'à expiration (env. 1 h).
+     * Token OAuth2 Moov Mobile, mis en cache jusqu'à expiration (env. 1 h).
      *
      * Moov Africa utilise un token AES-256 généré à partir des credentials.
      */
@@ -176,7 +176,7 @@ class MoovMoneyConnector implements TransferConnector
 
             if ($token === false) {
                 throw new \RuntimeException(
-                    'Échec de génération du token Moov Money : ' . openssl_error_string()
+                    'Échec de génération du token Moov Mobile : ' . openssl_error_string()
                 );
             }
 

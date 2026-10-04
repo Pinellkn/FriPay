@@ -251,7 +251,64 @@ class OfflineQrController extends Controller
             'external_validation_code' => $externalCode,
             // Numéro Fripay de l'envoyeur (constituant du QR).
             'sender_fripay_number'   => $senderFripayNumber,
+            // URL publique de la page web de retrait (web2) : c'est CE lien
+            // qui est encodé dans l'image QR, pour que n'importe quelle
+            // caméra (sans l'appli) ouvre la page au lieu d'afficher du JSON.
+            'claim_url'              => $this->claimUrl($request, $signed['uuid']),
         ], 201);
+    }
+
+    /**
+     * URL absolue de la page web publique de retrait (web2) d'un QR argent.
+     *
+     * On privilégie l'hôte de la requête plutôt que APP_URL : en dev local
+     * APP_URL vaut http://localhost — ce qu'aucun AUTRE téléphone ne peut
+     * ouvrir. L'hôte de la requête (ex : http://192.168.x.x:8080) est, par
+     * définition, joignable par l'appareil qui a créé le QR — et donc par
+     * celui qui le scanne sur le même réseau.
+     */
+    private function claimUrl(Request $request, string $uuid): string
+    {
+        return rtrim($request->getSchemeAndHttpHost() ?: (string) config('app.url'), '/')
+            . '/claim/' . $uuid;
+    }
+
+    /**
+     * Résoudre un QR "argent" à partir de son UUID.
+     *
+     * L'image QR encode désormais l'URL de la page web publique (web2) et
+     * non plus le payload signé : les caméras externes ouvrent la page web,
+     * mais l'appli a encore besoin du payload signé pour POST /qr/receive
+     * (coffre). Ce endpoint (auth) restitue le contenu signé d'un QR actif
+     * à partir de l'UUID extrait de l'URL.
+     *
+     * @bodyParam uuid string required UUID du QR (extrait de l'URL /claim/{uuid}).
+     *
+     * @response status=200 {"qr_code":"...","uuid":"...","amount":5000}
+     * @response status=404 {"error":"QR_NOT_FOUND"}
+     *
+     * @authenticated
+     */
+    public function resolve(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'uuid' => 'required|string|max:64',
+        ]);
+
+        $qr = OfflineQrCode::where('uuid', $validated['uuid'])->first();
+
+        if (!$qr) {
+            return response()->json(['error' => 'QR_NOT_FOUND'], 404);
+        }
+
+        return response()->json([
+            'qr_code'               => $qr->qr_payload,
+            'uuid'                  => $qr->uuid,
+            'amount'                => $qr->amount,
+            'currency'              => $qr->currency,
+            'status'                => $qr->status,
+            'has_recipient_account' => $qr->has_recipient_account,
+        ]);
     }
 
     /**

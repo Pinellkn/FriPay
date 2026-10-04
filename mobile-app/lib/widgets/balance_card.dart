@@ -188,7 +188,10 @@ class _BalanceCardState extends State<BalanceCard> {
                     shape: const StadiumBorder(),
                   ),
                   icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text('Ajouter', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                  // « Recharge » et non « Ajouter » : l'ajout de solde se
+                  // fait ICI ; l'onglet « Retrait » (accueil) fait l'inverse
+                  // (solde FriPay → compte mobile lié).
+                  label: const Text('Recharge', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
                 ),
             ],
           ),

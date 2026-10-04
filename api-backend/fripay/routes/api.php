@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\MerchantQrController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OfflineQrController;
 use App\Http\Controllers\Api\PaymentLinkController;
+use App\Http\Controllers\Api\PhoneCheckController;
 use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TopupController;
 use App\Http\Controllers\Api\TransferController;
@@ -97,6 +98,9 @@ Route::prefix('v1')->group(function () {
         // FriPay Link — création et suivi par le créateur (auth)
         Route::post('/payment-links', [PaymentLinkController::class, 'store']);
         Route::get('/payment-links', [PaymentLinkController::class, 'index']);
+        // Paiement d'un lien depuis le SOLDE FRIPAY du payeur connecté
+        // (parcours « Payer via FriPay » de web1 via fripay://pay/{token}).
+        Route::post('/payment-links/{token}/pay-wallet', [PaymentLinkController::class, 'payWithWallet']);
 
         Route::post('/transfers/quote', [TransferController::class, 'quote']);
         Route::post('/transfers', [TransferController::class, 'initiate']);
@@ -126,6 +130,14 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware(['auth:sanctum', 'throttle:qr-api'])->group(function () {
         Route::post('/qr/receive', [OfflineQrController::class, 'receive']);
+        // L'image QR argent encode l'URL web (/claim/{uuid}) : ce endpoint
+        // restitue le payload signé à partir de l'UUID pour le parcours
+        // in-app (coffre) quand on scanne l'URL plutôt que le JSON.
+        Route::post('/qr/resolve', [OfflineQrController::class, 'resolve']);
+        // L'image QR argent encode l'URL web (/claim/{uuid}) : ce endpoint
+        // restitue le payload signé à partir de l'UUID pour le parcours
+        // in-app (coffre) quand on scanne l'URL plutôt que le JSON.
+        Route::post('/qr/resolve', [OfflineQrController::class, 'resolve']);
         Route::post('/qr/redeem', [OfflineQrController::class, 'redeem']);
         Route::post('/qr/transfer', [OfflineQrController::class, 'transfer']);
         Route::post('/qr/revoke', [OfflineQrController::class, 'revoke']);
@@ -135,6 +147,18 @@ Route::prefix('v1')->group(function () {
 
     Route::post('/qr/generate', [OfflineQrController::class, 'generate'])
         ->middleware(['auth:sanctum', 'throttle:qr-generate']);
+
+    // Web1 — vérification publique « ce numéro possède-t-il un compte
+    // FriPay ? » (page de paiement d'un FriPay Link). Booléen seul,
+    // rate-limité par IP.
+    Route::get('/public/phone-check', PhoneCheckController::class)
+        ->middleware('throttle:phone-check');
+
+    // Web1 — vérification publique « ce numéro possède-t-il un compte
+    // FriPay ? » (page de paiement d'un FriPay Link). Booléen seul,
+    // rate-limité par IP.
+    Route::get('/public/phone-check', PhoneCheckController::class)
+        ->middleware('throttle:phone-check');
 
     // §6.e — Parcours receveur externe (page web publique, pas de compte)
     Route::middleware('throttle:qr-external-claim')->group(function () {
