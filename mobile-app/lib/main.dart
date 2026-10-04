@@ -4,10 +4,13 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'screens/auth/login_screen.dart';
 import 'screens/splash/splash_screen.dart';
 import 'services/api_config.dart';
 import 'services/deep_link_service.dart';
 import 'services/notification_service.dart';
+import 'services/session_lifecycle.dart';
+import 'services/token_storage.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -40,12 +43,46 @@ class FripayApp extends StatefulWidget {
 
 class _FripayAppState extends State<FripayApp> {
   StreamSubscription<Uri>? _linkSub;
+  StreamSubscription<void>? _sessionSub;
   late final AppLinks _appLinks = AppLinks();
 
   @override
   void initState() {
     super.initState();
     _listenDeepLinks();
+    _listenSessionExpiry();
+  }
+
+  /// Session définitivement morte (401 + refresh rejeté par le serveur,
+  /// voir ApiClient) : nettoyage déjà fait, on redirige vers l'écran de
+  /// connexion avec un message clair au lieu de laisser les écrans
+  /// afficher l'erreur brute « Unauthenticated. ». Un délai court laisse
+  /// la SnackBar s'afficher sur le nouveau contexte de navigation.
+  void _listenSessionExpiry() {
+    _sessionSub = SessionLifecycle.instance.onSessionExpired.listen((_) async {
+      await TokenStorage.instance.clear();
+      if (!mounted) return;
+      final navigator = DeepLinkService.navigatorKey.currentState;
+      if (navigator == null) {
+        // Navigation pas encore montée : on ré-arme la détection plutôt
+        // que de laisser _handling bloqué à true (sinon aucune expiration
+        // ultérieure ne serait plus redirigée).
+        SessionLifecycle.instance.completeHandling();
+        return;
+      }
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+      ScaffoldMessenger.of(DeepLinkService.navigatorKey.currentContext!).showSnackBar(
+        const SnackBar(
+          content: Text('Session expirée — reconnectez-vous.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      // Redirection faite : ré-arme la détection pour une session suivante.
+      SessionLifecycle.instance.completeHandling();
+    });
   }
 
   /// Deep links `fripay://` (web1 « Payer via FriPay ») — [app_links] gère
@@ -64,6 +101,7 @@ class _FripayAppState extends State<FripayApp> {
   @override
   void dispose() {
     unawaited(_linkSub?.cancel());
+    unawaited(_sessionSub?.cancel());
     super.dispose();
   }
 

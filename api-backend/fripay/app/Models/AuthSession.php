@@ -12,6 +12,7 @@ class AuthSession extends Model
 
     protected $fillable = [
         'user_id', 'refresh_token_hash', 'token_fingerprint', 'device_info', 'ip_address', 'revoked', 'expires_at',
+        'last_rotated_at',
     ];
 
     protected function casts(): array
@@ -19,6 +20,9 @@ class AuthSession extends Model
         return [
             'revoked' => 'boolean',
             'expires_at' => 'datetime',
+            // Départ de la grace period pour le rejeu d'un refresh token
+            // révoqué par rotation (voir AuthService::refreshTokens).
+            'last_rotated_at' => 'datetime',
         ];
     }
 

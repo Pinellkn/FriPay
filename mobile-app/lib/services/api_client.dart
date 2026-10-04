@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
+import 'session_lifecycle.dart';
 import 'token_storage.dart';
 
 /// Exception levée pour toute erreur API — reflète le format d'erreur
@@ -49,7 +50,7 @@ class ApiClient {
   /// refresh_token est à usage unique côté serveur, donc la 2e tentative
   /// en parallèle échouerait en 401 et ferait planter cet écran avec un
   /// message d'erreur générique, alors que la session est en fait valide.
-  Future<bool>? _refreshInFlight;
+  Future<_RefreshOutcome>? _refreshInFlight;
 
   /// Délai max avant d'abandonner une requête. Sans ça, si le téléphone
   /// n'arrive pas à joindre le gateway (mauvais réseau, pare-feu Windows
@@ -156,10 +157,19 @@ class ApiClient {
 
     // Token expiré : tenter un rafraîchissement automatique une seule fois.
     if (response.statusCode == 401 && authenticated && !isRetry) {
-      final refreshed = await _tryRefresh();
-      if (refreshed) {
+      final outcome = await _tryRefresh();
+      if (outcome == _RefreshOutcome.success) {
         return _send(method, path,
             query: query, body: body, authenticated: authenticated, isRetry: true, idempotencyKey: key);
+      }
+      // Le serveur a REJETÉ le refresh token (pas une simple erreur réseau,
+      // voir _RefreshOutcome.transientFailure) : la session est définitivement
+      // morte. On nettoie les tokens locaux et on prévient l'app, qui
+      // redirige vers l'écran de connexion — au lieu de laisser chaque
+      // écran afficher le brut « Unauthenticated. » (401 Sanctum).
+      if (outcome == _RefreshOutcome.deadSession) {
+        await TokenStorage.instance.clear();
+        SessionLifecycle.instance.notifySessionExpired();
       }
     }
 
@@ -205,13 +215,13 @@ class ApiClient {
   /// Point d'entrée appelé par toute requête qui reçoit un 401 : si un
   /// rafraîchissement est déjà en cours (déclenché par une autre requête
   /// partie en parallèle), on s'y attache au lieu d'en lancer un second.
-  Future<bool> _tryRefresh() {
+  Future<_RefreshOutcome> _tryRefresh() {
     return _refreshInFlight ??= _doRefresh().whenComplete(() => _refreshInFlight = null);
   }
 
-  Future<bool> _doRefresh() async {
+  Future<_RefreshOutcome> _doRefresh() async {
     final refreshToken = await TokenStorage.instance.refreshToken;
-    if (refreshToken == null) return false;
+    if (refreshToken == null) return _RefreshOutcome.deadSession;
     try {
       final result = await post(
         '/auth/refresh-token',
@@ -223,11 +233,24 @@ class ApiClient {
           accessToken: result['access_token'],
           refreshToken: result['refresh_token'],
         );
-        return true;
+        return _RefreshOutcome.success;
       }
+      return _RefreshOutcome.deadSession;
+    } on ApiException catch (e) {
+      // status == 0 : timeout ou réseau injoignable pendant le refresh —
+      // incident TRANSITOIRE. La session côté serveur peut être encore
+      // valide (grace period de 60 s sur les refresh tokens), on ne doit
+      // PAS tuer la session locale : la prochaine requête retentera.
+      // Un 4xx explicite (INVALID_REFRESH_TOKEN...) = session vraiment morte.
+      return e.status == 0 ? _RefreshOutcome.transientFailure : _RefreshOutcome.deadSession;
     } catch (_) {
-      // Refresh token invalide/expiré -> l'utilisateur devra se reconnecter.
+      return _RefreshOutcome.transientFailure;
     }
-    return false;
   }
 }
+
+/// Issue d'une tentative de rafraîchissement de token :
+/// - success : nouvelle paire persistée, la requête initiale sera rejouée ;
+/// - deadSession : refresh token rejeté par le serveur — session morte ;
+/// - transientFailure : réseau/timeout — on ne conclut rien.
+enum _RefreshOutcome { success, deadSession, transientFailure }
