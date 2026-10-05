@@ -291,6 +291,83 @@ class FeexpayQueueTest extends TestCase
     }
 
     // ────────────────────────────────────────────────────────────────
+    //  Régressions diag 05/10/2026 (collectes/payouts rejetés)
+    // ────────────────────────────────────────────────────────────────
+
+    public function test_celtiis_collection_uses_exact_feexpay_network_code(): void
+    {
+        // L'API FeexPay rejette le code nu « CELTIIS » (HTTP 400 Validation
+        // failed) : le code `reseau` EXACT est « CELTIIS BJ ». Vérifié par
+        // appel réel le 05/10/2026 — avant correctif, TOUTES les recharges
+        // Celtiis échouaient à la soumission.
+        $topup = app(TopupService::class)->initiate(User::find($this->userId), 1500, 'CELTIIS');
+
+        Http::fake([
+            '*/api/transactions/requesttopay/integration' => Http::response(['reference' => 'FEEX-CEL-QT', 'status' => 'PENDING'], 200),
+        ]);
+
+        (new InitiateTopupPayment($topup->id))->handle(app(TopupService::class));
+
+        Http::assertSent(fn ($request) => $request['reseau'] === 'CELTIIS BJ'
+            && $topup->fresh()->provider_reference === 'FEEX-CEL-QT');
+    }
+
+    public function test_http200_business_rejection_is_failed_with_provider_reason(): void
+    {
+        // FeexPay répond 200 SANS référence quand la collecte est refusée
+        // côté marchand (ex. {status: FAILED, reason: "Balance is
+        // insufficient"} — solde marchand épuisé, observé sur MOOV). Le
+        // connecteur doit tracer l'échec AVEC la raison, pas un laconique
+        // « rejeté (HTTP 200) : ».
+        $topup = app(TopupService::class)->initiate(User::find($this->userId), 500, 'MOOV');
+
+        Http::fake([
+            '*/api/transactions/requesttopay/integration' => Http::response(['status' => 'FAILED', 'reason' => 'Balance is insufficient'], 200),
+        ]);
+
+        (new InitiateTopupPayment($topup->id))->handle(app(TopupService::class));
+
+        $topup = $topup->fresh();
+        $this->assertSame('failed', $topup->status);
+        $this->assertStringContainsString('Balance is insufficient', (string) $topup->failure_reason);
+    }
+
+    public function test_payout_ip_not_allowed_is_flagged_for_immediate_failure(): void
+    {
+        // 403 IP_NOT_ALLOWED (IP serveur non whitelistée chez FeexPay) :
+        // aucun retry n'aboutira tant que l'IP n'est pas déclarée dans le
+        // tableau de bord. Le connecteur flag le résultat `ip_not_allowed`
+        // pour que TransferService échoue la transaction IMMÉDIATEMENT
+        // (avec remboursement) au lieu de l'épuiser en 10 tentatives
+        // d'outbox à vide (comportement observé le 04/10/2026).
+        Http::fake([
+            '*/api/payouts/public/transfer/global' => Http::response([
+                'success'    => false,
+                'code'       => 'IP_NOT_ALLOWED',
+                'message'    => 'Your IP address (41.138.89.240) is not allowed to perform payout operations',
+                'statusCode' => 403,
+            ], 403),
+        ]);
+
+        $connector = new \App\Services\Connectors\FeexpayPayoutConnector();
+        $result = $connector->initiateTransfer([
+            'amount'          => 500,
+            'recipient_phone' => '+2290197000000',
+            'reference'       => 'TXN-IPA-001',
+            'operator_code'   => 'MTN',
+            'description'     => 'Test payout',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertTrue((bool) ($result['ip_not_allowed'] ?? false));
+        $this->assertStringContainsString('IP', (string) $result['message']);
+
+        // Le code réseau part tel quel (MTN) — pas de transformation.
+        Http::assertSent(fn ($request) => $request['network'] === 'MTN'
+            && $request['callback_info'] === 'TXN-IPA-001');
+    }
+
+    // ────────────────────────────────────────────────────────────────
     //  Helpers
     // ────────────────────────────────────────────────────────────────
 

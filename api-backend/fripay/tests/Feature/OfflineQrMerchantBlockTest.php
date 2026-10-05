@@ -101,7 +101,7 @@ class OfflineQrMerchantBlockTest extends TestCase
         $qr = $this->createMerchantQr('mpm');
         $response = $this->postJson('/api/v1/qr/receive', ['qr_content' => $qr->qr_payload]);
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'MERCHANT_QR']);
+        $response->assertJsonFragment(['type' => 'MERCHANT_QR']);
     }
 
     public function test_cpm_qr_rejected_in_receive(): void
@@ -109,7 +109,7 @@ class OfflineQrMerchantBlockTest extends TestCase
         $qr = $this->createMerchantQr('cpm');
         $response = $this->postJson('/api/v1/qr/receive', ['qr_content' => $qr->qr_payload]);
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'MERCHANT_QR']);
+        $response->assertJsonFragment(['type' => 'MERCHANT_QR']);
     }
 
     public function test_mpm_qr_rejected_in_redeem(): void
@@ -117,7 +117,7 @@ class OfflineQrMerchantBlockTest extends TestCase
         $qr = $this->createMerchantQr('mpm');
         $response = $this->postJson('/api/v1/qr/redeem', ['uuid' => $qr->uuid]);
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'MERCHANT_QR']);
+        $response->assertJsonFragment(['type' => 'MERCHANT_QR']);
     }
 
     public function test_cpm_qr_rejected_in_redeem(): void
@@ -125,7 +125,7 @@ class OfflineQrMerchantBlockTest extends TestCase
         $qr = $this->createMerchantQr('cpm');
         $response = $this->postJson('/api/v1/qr/redeem', ['uuid' => $qr->uuid]);
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'MERCHANT_QR']);
+        $response->assertJsonFragment(['type' => 'MERCHANT_QR']);
     }
 
     public function test_mpm_qr_rejected_in_transfer(): void
@@ -136,7 +136,7 @@ class OfflineQrMerchantBlockTest extends TestCase
             'recipient_phone' => '+22997000099',
         ]);
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'MERCHANT_QR']);
+        $response->assertJsonFragment(['type' => 'MERCHANT_QR']);
     }
 
     public function test_cpm_qr_rejected_in_transfer(): void
@@ -147,7 +147,7 @@ class OfflineQrMerchantBlockTest extends TestCase
             'recipient_phone' => '+22997000099',
         ]);
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'MERCHANT_QR']);
+        $response->assertJsonFragment(['type' => 'MERCHANT_QR']);
     }
 }
 

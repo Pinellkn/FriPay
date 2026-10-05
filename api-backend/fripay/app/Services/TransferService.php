@@ -331,6 +331,17 @@ class TransferService
             return;
         }
 
+        // IP serveur non whitelistée chez FeexPay : aucun retry n'aboutira
+        // tant que l'IP n'est pas déclarée dans le dashboard marchand —
+        // échec immédiat + remboursement (le payout retentera en cas de
+        // rejeu manuel une fois l'IP déclarée). Diag 05/10/2026 : sans ce
+        // cas, 10 tentatives à vide via l'outbox.
+        if (! empty($result['ip_not_allowed'])) {
+            $this->markFailed($transaction, $result['message']);
+
+            return;
+        }
+
         // Rejet métier définitif (4xx) -> échec immédiat.
         if (($result['retryable'] ?? true) === false) {
             $this->markFailed($transaction, $result['message']);
@@ -340,6 +351,56 @@ class TransferService
 
         // Erreur réseau / 5xx / 429 -> file d'attente (mode hors-ligne).
         $this->enqueuePendingTransfer($transaction, $payload, $result['message']);
+    }
+
+    /**
+     * Filet anti-limbo : échoue (avec remboursement idempotent) les payouts
+     * restés en « processing » plus de $hours heures, SANS référence
+     * consultable chez l'agrégateur.
+     *
+     * FeexPay n'expose aucun endpoint public de statut payout (404 sur
+     * toutes les routes testées, diag 05/10/2026) : sans webhook, le sort
+     * d'un payout est définitivement inconnu. Mieux vaut rembourser le
+     * client (qui peut retenter) que de laisser son argent bloqué à vie.
+     *
+     * Idempotent : ne vise que statut = processing.
+     */
+    public function failStalePayouts(int $hours = 24, int $limit = 100): array
+    {
+        $cutoff = now()->subHours($hours);
+
+        $stale = Transaction::query()
+            ->where('status', 'processing')
+            ->where('rail_used', 'aggregator')
+            ->where('updated_at', '<', $cutoff)
+            ->orderBy('updated_at')
+            ->limit($limit)
+            ->get();
+
+        $failed = 0;
+
+        foreach ($stale as $transaction) {
+            $previous = $transaction->status;
+
+            $transaction->update([
+                'status'         => 'failed',
+                'failure_reason' => "Payout non confirmé par l'agrégateur depuis plus de {$hours} h — remboursé par sécurité",
+                'completed_at'   => now(),
+            ]);
+
+            $this->recordHistory($transaction, $previous, 'failed', 'system', 'Filet anti-limbo : statut payout inconnu (> 24 h)');
+            $this->refundWallet($transaction, 'transfer_refund_payout_stale');
+
+            Log::warning('Payout expiré sans confirmation — remboursé (anti-limbo)', [
+                'transaction' => $transaction->id,
+                'reference'   => $transaction->reference,
+                'depuis'      => (string) $transaction->updated_at,
+            ]);
+
+            $failed++;
+        }
+
+        return ['failed' => $failed];
     }
 
     /**
@@ -459,6 +520,17 @@ class TransferService
         if ($result['success']) {
             $this->markProcessing($transaction, $result['transaction_id'] ?? null);
             $item->update(['status' => 'completed']);
+
+            return;
+        }
+
+        // IP serveur non whitelistée chez FeexPay : aucun retry n'aboutira
+        // tant que l'IP n'est pas déclarée dans le dashboard marchand —
+        // échec immédiat (avec remboursement) au lieu d'épuiser le backoff
+        // exponentiel pendant des jours (60 s -> 24 h sur 10 tentatives).
+        if (! empty($result['ip_not_allowed'])) {
+            $this->markFailed($transaction, $result['message']);
+            $item->update(['status' => 'completed', 'last_error' => $result['message']]);
 
             return;
         }

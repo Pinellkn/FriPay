@@ -109,7 +109,7 @@ class OfflineQrControllerTest extends TestCase
         $response = $this->postJson('/api/v1/qr/receive', ['qr_content' => $qr->qr_payload]);
 
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'SELF_TRANSFER']);
+        $response->assertJsonFragment(['type' => 'SELF_TRANSFER']);
     }
 
     public function test_receive_rejects_pubkey_mismatch(): void
@@ -123,7 +123,7 @@ class OfflineQrControllerTest extends TestCase
         $response = $this->postJson('/api/v1/qr/receive', ['qr_content' => $qr->qr_payload]);
 
         $response->assertStatus(422);
-        $response->assertJsonFragment(['error' => 'PUBKEY_MISMATCH']);
+        $response->assertJsonFragment(['type' => 'PUBKEY_MISMATCH']);
     }
 
     public function test_verify_endpoint_reports_active_status(): void

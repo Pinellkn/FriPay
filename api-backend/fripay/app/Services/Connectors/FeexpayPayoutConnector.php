@@ -23,7 +23,14 @@ use Illuminate\Support\Facades\Log;
  * Le statut final (SUCCESSFUL / FAILED) est confirmé soit par le webhook
  * FeexPay (POST /api/v1/webhooks/feexpay, nécessite une URL publique — pas
  * le cas en dev local), soit par vérification active
- * (job RefreshPendingPayouts -> checkPayoutStatus()).
+ * (job RefreshPendingPayouts -> checkPayoutStatus()). Filet anti-limbo :
+ * un payout "processing" depuis plus de 24 h est échoué + remboursé
+ * (TransferService::failStalePayouts, appelé par ce même job).
+ *
+ * ⚠️ DIAG 05/10/2026 : AUCUN endpoint de statut payout n'a pu être
+ * découvert côté FeexPay (routes sous /api/payouts et /api/transactions
+ * testées -> 404). La confirmation de statut repose donc UNIQUEMENT sur
+ * le webhook (si configuré) et sur le filet 24 h.
  *
  * ⚠️ WHITELIST IP : FeexPay rejette tout payout (HTTP 403 IP_NOT_ALLOWED)
  * depuis une IP non déclarée dans le tableau de bord marchand (onglet
@@ -69,6 +76,10 @@ class FeexpayPayoutConnector implements TransferConnector
                 'message'        => "Réseau non supporté par le payout FeexPay : {$network}",
             ];
         }
+
+        // Code réseau FeexPay EXACT ("CELTIIS BJ", pas "CELTIIS") — même
+        // convention que la collecte (FeexpayConnector::reseauCode).
+        $network = \App\Services\Connectors\FeexpayConnector::reseauCode($network);
 
         $amount = (int) $payload['amount'];
 
@@ -134,14 +145,18 @@ class FeexpayPayoutConnector implements TransferConnector
         $code = (string) ($body['code'] ?? '');
 
         // 403 IP_NOT_ALLOWED : l'IP du serveur n'est pas whitelistée chez
-        // FeexPay (tableau de bord > IP List). Temporaire : dès que l'IP est
-        // déclarée, l'outbox rejouera les transferts en attente tout seul.
+        // FeexPay (tableau de bord > IP List). Flag `ip_not_allowed` : le
+        // TransferService échoue alors la transaction IMMÉDIATEMENT (avec
+        // remboursement) au lieu de la laisser en outbox pendant des
+        // heures — aucun retry n'aboutira tant que l'IP n'est pas déclarée
+        // chez FeexPay (diag du 05/10/2026 : 10 tentatives à vide).
         if ($response->status() === 403 || $code === 'IP_NOT_ALLOWED') {
             Log::warning('FeexPay payout refusé — IP non whitelistée', ['ip' => $body['message'] ?? null]);
 
             return [
                 'success'        => false,
-                'retryable'      => true,
+                'retryable'      => true, // rejouable UNE fois l'IP déclarée (outbox existante)
+                'ip_not_allowed' => true,
                 'transaction_id' => null,
                 'message'        => 'Payout bloqué : IP serveur non autorisée chez FeexPay (à déclarer dans le tableau de bord, onglet IP List)',
             ];

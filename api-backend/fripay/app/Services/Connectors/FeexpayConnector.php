@@ -94,7 +94,8 @@ class FeexpayConnector
             'last_name'    => $params['last_name'] ?? 'FriPay',
             'phoneNumber'  => $params['phone'],
             'phoneNumberRight' => preg_replace('/^229/', '', (string) $params['phone']),
-            'reseau'       => strtoupper($params['operator']), // MTN | MOOV
+            // Code réseau FeexPay EXACT (« CELTIIS BJ », pas « CELTIIS »).
+            'reseau'       => self::reseauCode((string) $params['operator']),
             'shop'         => $this->config('id'),
             'callback_info' => $params['description'] ?? 'Recharge wallet FriPay',
             'reference'    => $params['reference'],
@@ -129,6 +130,30 @@ class FeexpayConnector
 
         // La référence FeexPay peut venir dans `reference` (cas normal).
         $feexReference = $body['reference'] ?? null;
+
+        // Rejet MÉTIER en HTTP 200 sans référence : FeexPay accepte la
+        // requête (2xx) mais renvoie status=FAILED + reason (ex. « Balance
+        // is insufficient » = solde marchand épuisé). Sans ce cas, le
+        // connecteur loggait un laconique « rejeté (HTTP 200) : » sans
+        // raison exploitable (diag du 05/10/2026).
+        if ($response->successful() && ($status === self::STATUS_FAILED || ! $feexReference)) {
+            $reason = (string) ($body['reason'] ?? $body['message'] ?? 'Demande refusée par FeexPay');
+
+            Log::warning('FeexPay requestToPay : rejet métier (HTTP 200)', [
+                'status' => $status ?: null,
+                'reason' => $reason,
+                'body'   => $this->errorBody($body, $response),
+            ]);
+
+            return [
+                'success'     => false,
+                'retryable'   => false,
+                'reference'   => $feexReference,
+                'payment_url' => null,
+                'status'      => $status ?: null,
+                'message'     => 'FeexPay a refusé la demande : ' . $reason,
+            ];
+        }
 
         if ($response->successful() && $status !== self::STATUS_FAILED && $feexReference) {
             return [
@@ -239,11 +264,25 @@ class FeexpayConnector
 
     /**
      * Opérateurs mobiles supportés par la collecte FeexPay.
-     * MTN MoMo, Moov Mobile et Celtiis Mobile (codes `reseau` FeexPay).
+     *
+     * Codes `reseau` FeexPay EXACTS (validation serveur stricte) :
+     * MTN / MOOV (Bénin) et « CELTIIS BJ » pour Celtiis Mobile — le code
+     * nu « CELTIIS » est rejeté en HTTP 400 « Validation failed » et
+     * faisait échouer TOUTES les recharges Celtiis (diag du 05/10/2026).
+     * Les codes d'affichage FriPay restent MTN|MOOV|CELTIIS : la conversion
+     * se fait via reseauCode().
      */
     public static function supportedOperators(): array
     {
         return ['MTN', 'MOOV', 'CELTIIS'];
+    }
+
+    /**
+     * Convertit un code opérateur FriPay en code `reseau` FeexPay.
+     */
+    public static function reseauCode(string $operator): string
+    {
+        return strtoupper($operator) === 'CELTIIS' ? 'CELTIIS BJ' : strtoupper($operator);
     }
 
     private function config(string $key): ?string

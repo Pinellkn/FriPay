@@ -19,9 +19,16 @@ use Illuminate\Support\Facades\Log;
  *
  * Ordonnancé toutes les 2 minutes (scheduler, cf. routes/console.php) :
  * pour chaque transaction processing dont external_reference est une
- * référence FeexPay, on interroge « Statut des paiements » et on
- * finalise : succeeded (argent livré) ou failed (+ remboursement du
- * wallet, via TransferService::refundWallet — source de vérité ledger).
+ * référence FeexPay, on interroge le statut et on finalise : succeeded
+ * (argent livré) ou failed (+ remboursement du wallet, via
+ * TransferService::refundWallet — source de vérité ledger).
+ *
+ * ⚠️ DIAG 05/10/2026 : FeexPay n'expose AUCUN endpoint public de statut
+ * payout (toutes les routes /status testées répondent 404). Le polling
+ * échoue donc toujours — les payouts restent « processing » pour ever si
+ * le webhook n'arrive pas. Filet anti-limbo ajouté : un payout
+ * « processing » depuis plus de 24 h est échoué + remboursé
+ * (failStalePayouts), l'utilisateur récupère son argent et peut retenter.
  *
  * Idempotent : la requête ne vise que statut = processing, donc une
  * transaction déjà finalisée n'est jamais re-traitée.
@@ -89,6 +96,11 @@ class RefreshPendingPayouts implements ShouldQueue
                 'vers'        => $finalStatus,
             ]);
         }
+
+        // Filet anti-limbo : payouts « processing » depuis > 24 h — aucun
+        // moyen de connaître leur sort (pas d'endpoint de statut payout,
+        // webhook absent en dev). Échec + remboursement idempotent.
+        $transfers->failStalePayouts(24);
     }
 
     public function backoff(): array

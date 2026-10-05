@@ -40,55 +40,19 @@ class MtnWebhookTest extends TestCase
      */
     private function createSharedTablesAndFixtures(): void
     {
-        // Table users (appartient à fripay-users)
-        if (!DB::getSchemaBuilder()->hasTable('users')) {
-            DB::statement('CREATE TABLE users (
-                id TEXT PRIMARY KEY,
-                phone_number TEXT NOT NULL UNIQUE,
-                first_name TEXT,
-                last_name TEXT,
-                status TEXT DEFAULT "active",
-                pin_hash TEXT,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )');
+        // Les tables proviennent des MIGRATIONS (RefreshDatabase) : les
+        // anciens CREATE TABLE de secours décrivaient un schéma obsolète
+        // (linked_accounts.phone_number) et leurs gardes hasTable les
+        // rendaient morts — les INSERT en colonnes obsolètes échouaient.
+
+        // Opérateurs réels (migration 2026_09_19 insère déjà FRIPAY) :
+        // seeder officiel + IDs résolus dynamiquement (plus de 'id' => 1
+        // codé en dur qui cassait la FK phone_prefixes).
+        if (DB::table('operators')->where('code', 'MTN')->doesntExist()) {
+            (new \Database\Seeders\OperatorSeeder)->run();
         }
 
-        // Table linked_accounts (appartient à fripay-users)
-        if (!DB::getSchemaBuilder()->hasTable('linked_accounts')) {
-            DB::statement('CREATE TABLE linked_accounts (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                phone_number TEXT NOT NULL,
-                operator_id INTEGER,
-                account_label TEXT,
-                status TEXT DEFAULT "active",
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )');
-        }
-
-        // Table operators (nécessaire pour FK recipient_operator_id)
-        if (!DB::getSchemaBuilder()->hasTable('operators')) {
-            DB::statement('CREATE TABLE operators (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT NOT NULL,
-                name TEXT NOT NULL,
-                country_code TEXT DEFAULT "BJ",
-                active INTEGER DEFAULT 1,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )');
-        }
-
-        // Données de référence pour les FK
-        if (DB::table('operators')->count() === 0) {
-            DB::table('operators')->insert([
-                'id' => 1, 'code' => 'MTN_MOMO', 'name' => 'MTN Mobile Money',
-                'country_code' => 'BJ', 'active' => 1,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
-        }
+        $mtnId = (int) DB::table('operators')->where('code', 'MTN')->value('id');
 
         if (DB::table('users')->where('id', 'test-user-1')->count() === 0) {
             DB::table('users')->insert([
@@ -101,8 +65,8 @@ class MtnWebhookTest extends TestCase
         if (DB::table('linked_accounts')->where('id', 'test-account-1')->count() === 0) {
             DB::table('linked_accounts')->insert([
                 'id' => 'test-account-1', 'user_id' => 'test-user-1',
-                'phone_number' => '+22990000001', 'operator_id' => 1,
-                'account_label' => 'Mobile Money', 'status' => 'active',
+                'operator_id' => $mtnId, 'msisdn' => '+22990000001',
+                'is_primary' => 1, 'status' => 'active',
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
@@ -121,7 +85,7 @@ class MtnWebhookTest extends TestCase
             'sender_user_id'         => 'test-user-1',
             'sender_account_id'      => 'test-account-1',
             'recipient_phone'        => '+22990000002',
-            'recipient_operator_id'  => 1,
+            'recipient_operator_id'  => DB::table('operators')->where('code', 'MTN')->value('id'),
             'amount'                 => 5000,
             'currency'               => 'XOF',
             'fee_amount'             => 0,

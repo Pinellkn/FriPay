@@ -36,6 +36,27 @@ class RefreshPendingTopups implements ShouldQueue
             ->limit(200) // lot borné : jamais d'explosion du temps du job
             ->get()
             ->each(fn (Topup $topup) => $topups->refreshStatus($topup));
+
+        // Filet : recharges pending/processing SANS provider_reference et
+        // jamais soumises avec succès — la demande de collecte a été rejetée
+        // (montant, réseau, 401, solde marchand…) ou le job d'initiation a
+        // épuisé ses retries sans tracer l'échec. Passé 2 h, ces entrées ne
+        // deviendront jamais des collectes réelles : on les échoue proprement
+        // pour que l'app affiche « Recharge échouée » au lieu de « en attente »
+        // à l'infini. Idempotent : on ne vise que sans provider_reference.
+        Topup::query()
+            ->whereIn('status', ['pending', 'processing'])
+            ->whereNull('provider_reference')
+            ->where('created_at', '<=', now()->subHours(2))
+            ->limit(200)
+            ->get()
+            ->each(function (Topup $topup) {
+                $topup->update([
+                    'status'         => 'failed',
+                    'failure_reason' => $topup->failure_reason
+                        ?? "Collecte jamais soumise à FeexPay (aucune référence) — abandonnée après 2 h",
+                ]);
+            });
     }
 
     public function backoff(): array

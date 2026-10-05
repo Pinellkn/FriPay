@@ -84,9 +84,14 @@ return [
     | marchand (shop ID + token API) couvre MTN et Moov pour la collecte.
     | Cles : https://feexpay.me -> Tableau de bord marchand -> API
     |
-    | NOTE : FeexPay n'expose pas d'endpoint public de disbursement (payout) :
-    | le RETRAIT reste sur les connecteurs opérateurs natifs ou le retrait
-    | agent.
+    | NOTE (diag 05/10/2026) :
+    | - Les payouts passent par POST /api/payouts/public/transfer/global
+    |   (FeexpayPayoutConnector) mais l'IP du serveur doit être déclarée
+    |   dans le tableau de bord marchand (onglet « IP List ») — sinon 403
+    |   IP_NOT_ALLOWED sur CHAQUE payout.
+    | - AUCUN endpoint public de statut payout n'existe (404 sur toutes les
+    |   routes testées) : la confirmation repose sur le webhook FEEXPAY_-
+    |   CALLBACK_URL (obligatoire en prod) + filet anti-limbo 24 h.
     |
     */
     'feexpay' => [

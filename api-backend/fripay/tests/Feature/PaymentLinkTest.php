@@ -311,7 +311,11 @@ class PaymentLinkTest extends TestCase
             'operator' => 'ORANGE',
         ])->assertStatus(422);
 
-        // Celtiis est bien accepté (démarre la collecte, mocked).
+        // Celtiis est bien accepté (démarre la collecte, mocked). Le code
+        // `reseau` FeexPay EXACT est « CELTIIS BJ » — le code nu « CELTIIS »
+        // est rejeté en HTTP 400 « Validation failed » par l'API (vérifié
+        // par appel réel le 05/10/2026) et faisait échouer toutes les
+        // recharges Celtiis.
         Http::fake([
             '*/api/transactions/requesttopay/integration' => Http::response(['reference' => 'FEEX-CEL-001', 'status' => 'PENDING'], 200),
         ]);
@@ -320,7 +324,7 @@ class PaymentLinkTest extends TestCase
             'operator' => 'CELTIIS',
         ])->assertStatus(202);
 
-        Http::assertSent(fn ($request) => strtoupper((string) $request['reseau']) === 'CELTIIS');
+        Http::assertSent(fn ($request) => strtoupper((string) $request['reseau']) === 'CELTIIS BJ');
     }
 
     public function test_service_markLinkPaid_is_idempotent_at_the_service_level(): void

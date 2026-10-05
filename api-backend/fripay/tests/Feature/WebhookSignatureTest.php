@@ -30,42 +30,22 @@ class WebhookSignatureTest extends TestCase
 
     private function createSharedTablesAndFixtures(): void
     {
-        if (!DB::getSchemaBuilder()->hasTable('users')) {
-            DB::statement('CREATE TABLE users (
-                id TEXT PRIMARY KEY,
-                phone_number TEXT NOT NULL UNIQUE,
-                first_name TEXT,
-                last_name TEXT,
-                status TEXT DEFAULT "active",
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )');
+        // Les tables users / linked_accounts / operators proviennent des
+        // MIGRATIONS (RefreshDatabase). Les anciens CREATE TABLE de secours
+        // décrivaient le schéma d'une architecture passée (colonne
+        // linked_accounts.phone_number supprimée depuis au profit de
+        // msisdn) — leur garde hasTable les rendait morts et les INSERT
+        // ci-dessous échouaient en « no column named phone_number ».
+
+        // Opérateurs réels : la migration 2026_09_19 insère déjà FRIPAY,
+        // on complète via le seeder officiel (MTN/MOOV/CELTIIS + préfixes)
+        // puis on résout les IDs DYNAMIQUEMENT — les IDs codés en dur
+        // (1 = MTN_MOMO) correspondaient à un ancien schéma.
+        if (DB::table('operators')->where('code', 'MTN')->doesntExist()) {
+            (new \Database\Seeders\OperatorSeeder)->run();
         }
 
-        if (!DB::getSchemaBuilder()->hasTable('linked_accounts')) {
-            DB::statement('CREATE TABLE linked_accounts (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                phone_number TEXT NOT NULL,
-                operator_id INTEGER,
-                account_label TEXT,
-                status TEXT DEFAULT "active",
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )');
-        }
-
-        if (!DB::getSchemaBuilder()->hasTable('operators')) {
-            DB::statement('CREATE TABLE operators (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT NOT NULL,
-                name TEXT NOT NULL,
-                country_code TEXT DEFAULT "BJ",
-                active INTEGER DEFAULT 1,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )');
-        }
+        $mtnId = (int) DB::table('operators')->where('code', 'MTN')->value('id');
 
         if (DB::table('users')->where('id', 'test-user-wh-1')->count() === 0) {
             DB::table('users')->insert([
@@ -78,15 +58,9 @@ class WebhookSignatureTest extends TestCase
         if (DB::table('linked_accounts')->where('id', 'test-account-wh-1')->count() === 0) {
             DB::table('linked_accounts')->insert([
                 'id' => 'test-account-wh-1', 'user_id' => 'test-user-wh-1',
-                'phone_number' => '+22997000200', 'operator_id' => 1,
-                'account_label' => 'Mobile Money', 'status' => 'active',
+                'operator_id' => $mtnId, 'msisdn' => '+22997000200',
+                'is_primary' => 1, 'status' => 'active',
                 'created_at' => now(), 'updated_at' => now(),
-            ]);
-        }
-
-        if (DB::table('operators')->count() === 0) {
-            DB::table('operators')->insert([
-                ['id' => 1, 'code' => 'MTN_MOMO', 'name' => 'MTN', 'country_code' => 'BJ', 'active' => 1, 'created_at' => now(), 'updated_at' => now()],
             ]);
         }
     }

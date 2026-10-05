@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -30,7 +31,7 @@ class TransferControllerTest extends TestCase
 
     private string $userId = 'test-user-tx-1';
     private string $accountId = '';
-    private string $recipientPhone = '+2290197000101';
+    private string $recipientPhone = '+2290145000101';
 
     protected function setUp(): void
     {
@@ -38,6 +39,12 @@ class TransferControllerTest extends TestCase
 
         $this->accountId = (string) Str::uuid();
         Config::set('services.mtn.allowed_ips', []);
+
+        // Hermétique : le .env local contient de VRAIES clés FeexPay —
+        // sans ce garde, l'initiation d'un transfert externe partirait en
+        // appel réseau réel pendant les tests. Toute requête imprévue
+        // (agrégateur, opérateur) fait échouer le test au lieu de fuiter.
+        Http::preventStrayRequests();
         $this->createSharedTablesAndFixtures();
     }
 
@@ -89,20 +96,29 @@ class TransferControllerTest extends TestCase
             )');
         }
 
-        // Seed operators
-        if (DB::table('operators')->count() === 0) {
-            DB::table('operators')->insert([
-                ['id' => 1, 'code' => 'MTN_MOMO', 'name' => 'MTN Mobile Money', 'country_code' => 'BJ', 'active' => 1, 'created_at' => now(), 'updated_at' => now()],
-                ['id' => 2, 'code' => 'MOOV_MONEY', 'name' => 'Moov Money', 'country_code' => 'BJ', 'active' => 1, 'created_at' => now(), 'updated_at' => now()],
-            ]);
+        // Les tables users / linked_accounts / operators proviennent des
+        // MIGRATIONS (RefreshDatabase) — les CREATE TABLE de secours
+        // décrivaient un schéma obsolète (linked_accounts.phone_number)
+        // et leurs gardes hasTable les rendaient morts.
+
+        // Opérateurs réels : la migration 2026_09_19 insère déjà FRIPAY,
+        // le garde count()===0 sautait donc le seed et l'INSERT cidessous
+        // violait la FK phone_prefixes.operator_id=2 (IDs 1/2 codés en
+        // dur = ancien schéma). Seeder officiel + IDs dynamiques.
+        if (DB::table('operators')->where('code', 'MTN')->doesntExist()) {
+            (new \Database\Seeders\OperatorSeeder)->run();
         }
+
+        $mtnId  = (int) DB::table('operators')->where('code', 'MTN')->value('id');
+        $moovId = (int) DB::table('operators')->where('code', 'MOOV')->value('id');
 
         // Seed phone prefix — nécessaire pour OperatorDetectionService::detect().
         // Le destinataire ($this->recipientPhone, +229 01...) doit être détecté
-        // comme opérateur Moov (id 2), destination du corridor de test ci-dessous.
-        if (DB::table('phone_prefixes')->count() === 0) {
+        // comme opérateur Moov, destination du corridor de test ci-dessous.
+        // (Le seeder officiel couvre déjà les préfixes réels si exécuté.)
+        if (DB::table('phone_prefixes')->where('prefix', '22901')->doesntExist()) {
             DB::table('phone_prefixes')->insert([
-                'operator_id' => 2,
+                'operator_id' => $moovId,
                 'prefix' => '22901',
                 'country_code' => 'BJ',
             ]);
@@ -132,8 +148,7 @@ class TransferControllerTest extends TestCase
             DB::table('linked_accounts')->insert([
                 'id' => $this->accountId,
                 'user_id' => $this->userId,
-                'phone_number' => '+22997000100',
-                'operator_id' => 1,
+                'operator_id' => $mtnId,
                 'msisdn' => '+22997000100',
                 'is_primary' => 1,
                 'status' => 'active',
@@ -142,11 +157,18 @@ class TransferControllerTest extends TestCase
             ]);
         }
 
+        // Wallet approvisionné : depuis la v2 du ledger, l'initiation DÉBITE
+        // le wallet (sinon 422 « Fonds insuffisants » à l'initiation). Le
+        // crédit doit venir APRÈS la création du user (FK wallets.user_id).
+        app(\App\Services\WalletService::class)->credit(
+            $this->userId, 1000000.0, null, 'manual_topup', 'Provision test transferts'
+        );
+
         // Seed corridor
         if (DB::table('corridors')->count() === 0) {
             DB::table('corridors')->insert([
-                'source_operator_id' => 1,
-                'destination_operator_id' => 2,
+                'source_operator_id' => $mtnId,
+                'destination_operator_id' => $moovId,
                 'rail' => 'aggregator',
                 'aggregator_provider' => 'pispi',
                 'priority' => 1,
@@ -183,8 +205,8 @@ class TransferControllerTest extends TestCase
             'idempotency_key'        => "test-uuid-{$reference}",
             'sender_user_id'         => $this->userId,
             'sender_account_id'      => $this->accountId,
-            'recipient_phone'        => '+2290197000101',
-            'recipient_operator_id'  => 2,
+            'recipient_phone'        => '+2290145000101',
+            'recipient_operator_id'  => DB::table('operators')->where('code', 'MOOV')->value('id'),
             'amount'                 => 5000,
             'currency'               => 'XOF',
             'fee_amount'             => 75,
@@ -209,7 +231,7 @@ class TransferControllerTest extends TestCase
         $response = $this->withHeaders($this->authHeaders())
             ->postJson('/api/v1/transfers/quote', [
                 'sender_account_id' => $this->accountId,
-                'recipient_phone' => '+2290197000101',
+                'recipient_phone' => '+2290145000101',
                 'amount' => '10000',
             ]);
 
@@ -235,7 +257,7 @@ class TransferControllerTest extends TestCase
         $response = $this->withHeaders($this->authHeaders())
             ->postJson('/api/v1/transfers/quote', [
                 'sender_account_id' => $this->accountId,
-                'recipient_phone' => '+2290197000101',
+                'recipient_phone' => '+2290145000101',
                 'amount' => '600000',
             ]);
 
@@ -262,7 +284,7 @@ class TransferControllerTest extends TestCase
     {
         $response = $this->postJson('/api/v1/transfers/quote', [
             'sender_account_id' => $this->accountId,
-            'recipient_phone' => '+2290197000101',
+            'recipient_phone' => '+2290145000101',
             'amount' => '10000',
         ]);
 
@@ -277,7 +299,7 @@ class TransferControllerTest extends TestCase
         $quoteResponse = $this->withHeaders($this->authHeaders())
             ->postJson('/api/v1/transfers/quote', [
                 'sender_account_id' => $this->accountId,
-                'recipient_phone' => '+2290197000101',
+                'recipient_phone' => '+2290145000101',
                 'amount' => '10000',
             ]);
 
@@ -288,11 +310,10 @@ class TransferControllerTest extends TestCase
             ->postJson('/api/v1/transfers', [
                 'quote_token' => $quoteToken,
                 'sender_account_id' => $this->accountId,
-                'recipient_phone' => '+2290197000101',
+                'recipient_phone' => '+2290145000101',
                 'amount' => '10000',
                 'pin' => '12345',
             ]);
-
         $response->assertStatus(202);
         $response->assertJsonStructure([
             'transaction_id',
@@ -315,7 +336,7 @@ class TransferControllerTest extends TestCase
         $quoteToken = Str::random(32);
         Cache::put('quote_' . $quoteToken, [
             'sender_account_id' => $this->accountId,
-            'recipient_phone' => '+2290197000101',
+            'recipient_phone' => '+2290145000101',
             'amount' => 10000,
             'fee_amount' => 150,
             'total_debited' => 10150,
@@ -329,7 +350,7 @@ class TransferControllerTest extends TestCase
             ->postJson('/api/v1/transfers', [
                 'quote_token' => $quoteToken,
                 'sender_account_id' => $this->accountId,
-                'recipient_phone' => '+2290197000101',
+                'recipient_phone' => '+2290145000101',
                 'amount' => '10000',
                 'pin' => '12345',
             ]);
@@ -351,7 +372,7 @@ class TransferControllerTest extends TestCase
         $quoteResponse = $this->withHeaders($this->authHeaders())
             ->postJson('/api/v1/transfers/quote', [
                 'sender_account_id' => $this->accountId,
-                'recipient_phone' => '+2290197000101',
+                'recipient_phone' => '+2290145000101',
                 'amount' => '10000',
             ]);
 
@@ -362,7 +383,7 @@ class TransferControllerTest extends TestCase
             ->postJson('/api/v1/transfers', [
                 'quote_token' => $quoteToken,
                 'sender_account_id' => $this->accountId,
-                'recipient_phone' => '+2290197000101',
+                'recipient_phone' => '+2290145000101',
                 'amount' => '10000',
                 'pin' => '99999',
             ]);
@@ -510,12 +531,14 @@ class TransferControllerTest extends TestCase
 
     public function test_health_check_returns_ok(): void
     {
+        // « FriPay Payments » = payload de l'ancien microservice ; depuis
+        // la fusion en application unique, la route renvoie « FriPay ».
         $response = $this->getJson('/api/v1/up');
 
         $response->assertOk();
         $response->assertJson([
             'status' => 'ok',
-            'service' => 'FriPay Payments',
+            'service' => 'FriPay',
             'version' => 'v1',
         ]);
     }
