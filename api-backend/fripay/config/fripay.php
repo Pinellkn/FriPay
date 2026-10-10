@@ -99,6 +99,7 @@ return [
         'token'    => env('FEEXPAY_TOKEN'),    // clé API marchande
         'base_url' => env('FEEXPAY_BASE_URL', 'https://api-v2.feexpay.me'),
         'callback_url' => env('FEEXPAY_CALLBACK_URL'), // webhook public (optionnel en dev)
+        'webhook_secret' => env('FEEXPAY_WEBHOOK_SECRET'), // ?token=... exigé pour finaliser un payout
     ],
 
     /*
