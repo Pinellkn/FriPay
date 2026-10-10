@@ -55,7 +55,12 @@ class WebhookController extends Controller
         // faits par le job ProcessFeexpayWebhook (queue `webhooks`) — un
         // burst de webhooks ne peut plus épuiser les workers HTTP, et un
         // traitement raté est rejoué par la queue (retries + failed).
-        ProcessFeexpayWebhook::dispatch($webhookEvent->id, $providerReference);
+        // Secret de webhook (?token=... dans l'URL configurée chez FeexPay) :
+        // requis pour finaliser un payout (cf. ProcessFeexpayWebhook).
+        $secret  = (string) config('fripay.feexpay.webhook_secret');
+        $trusted = $secret !== '' && hash_equals($secret, (string) $request->query('token', ''));
+
+        ProcessFeexpayWebhook::dispatch($webhookEvent->id, $providerReference, $trusted);
 
         Log::info('Webhook FeexPay reçu — traitement dispatché', [
             'reference' => $providerReference,

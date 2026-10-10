@@ -9,11 +9,15 @@ use App\Models\Transaction;
 use App\Models\TransactionStatusHistory;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class TransferService
 {
+    /** Statuts terminaux : une transaction qui y est ne change plus jamais d'état. */
+    public const FINAL_STATUSES = ['succeeded', 'failed', 'cancelled', 'completed'];
+
     private ConnectorRegistry $connectors;
     private OperatorDetectionService $operatorDetection;
     private WalletService $wallets;
@@ -575,14 +579,150 @@ class TransferService
      */
     private function markProcessing(Transaction $transaction, ?string $externalReference): void
     {
-        $previous = $transaction->status;
+        DB::transaction(function () use ($transaction, $externalReference) {
+            $locked = Transaction::whereKey($transaction->id)->lockForUpdate()->first();
 
-        $transaction->update([
-            'status'             => 'processing',
-            'external_reference' => $externalReference ?: $transaction->external_reference,
-        ]);
+            if (! $locked) {
+                return;
+            }
 
-        $this->recordHistory($transaction, $previous, 'processing', 'system', 'Envoyé au réseau');
+            // Le webhook peut arriver AVANT cette mise à jour (réponse FeexPay
+            // lente) et avoir déjà finalisé la transaction : on ne repasse
+            // jamais un statut final en « processing », on garde seulement
+            // la référence réseau.
+            if (in_array($locked->status, self::FINAL_STATUSES, true)) {
+                if ($externalReference && ! $locked->external_reference) {
+                    $locked->update(['external_reference' => $externalReference]);
+                }
+
+                return;
+            }
+
+            $previous = $locked->status;
+
+            $locked->update([
+                'status'             => 'processing',
+                'external_reference' => $externalReference ?: $locked->external_reference,
+            ]);
+
+            $this->recordHistory($locked, $previous, 'processing', 'system', 'Envoyé au réseau');
+        });
+    }
+
+    /**
+     * UNIQUE point de finalisation d'un payout (succeeded | failed).
+     *
+     * Verrouille la ligne transaction, refuse de toucher à un statut déjà
+     * final (idempotent : un webhook rejoué ou un polling concurrent ne
+     * fait rien) et, pour un échec, rembourse DANS LA MÊME transaction DB.
+     *
+     * @return bool true si cet appel a finalisé la transaction, false si
+     *              elle était déjà finale (ou introuvable).
+     */
+    public function finalize(string $transactionId, string $status, string $source, string $note, ?string $refundReason = null): bool
+    {
+        if (! in_array($status, ['succeeded', 'failed'], true)) {
+            throw new \InvalidArgumentException("Statut final invalide : {$status}");
+        }
+
+        $transaction = null;
+
+        $done = DB::transaction(function () use ($transactionId, $status, $source, $note, $refundReason, &$transaction) {
+            $transaction = Transaction::whereKey($transactionId)->lockForUpdate()->first();
+
+            if (! $transaction || in_array($transaction->status, self::FINAL_STATUSES, true)) {
+                return false;
+            }
+
+            $previous = $transaction->status;
+
+            $transaction->update([
+                'status'         => $status,
+                'completed_at'   => now(),
+                'failure_reason' => $status === 'failed' ? $note : $transaction->failure_reason,
+            ]);
+
+            $this->recordHistory($transaction, $previous, $status, $source, $note);
+
+            if ($status === 'failed') {
+                $this->refundWallet($transaction, $refundReason ?? 'transfer_refund_failed');
+            }
+
+            return true;
+        });
+
+        if ($done && $transaction) {
+            $label = number_format((float) $transaction->amount, 0, ',', ' ') . ' FCFA';
+
+            $this->notify(
+                $transaction->sender_user_id,
+                $status === 'succeeded' ? 'Transfert délivré' : 'Transfert échoué',
+                $status === 'succeeded'
+                    ? "Votre transfert de {$label} a été délivré."
+                    : "Votre transfert de {$label} n'a pas pu être délivré. Le montant a été remboursé sur votre compte.",
+                $transaction->id
+            );
+        }
+
+        return $done;
+    }
+
+    /**
+     * Applique un webhook FeexPay « payout » (SUCCESSFUL | FAILED).
+     *
+     * La transaction est retrouvée par la référence FeexPay
+     * (external_reference) ou, si le webhook devance markProcessing(), par
+     * `callback_info` (= référence FriPay envoyée au payout).
+     *
+     * @return Transaction|null null si aucun payout ne correspond.
+     */
+    public function applyFeexpayPayoutWebhook(array $payload, string $providerReference): ?Transaction
+    {
+        $fripayReference = (string) ($payload['callback_info'] ?? '');
+
+        $transaction = Transaction::query()
+            ->where('rail_used', 'aggregator')
+            ->where(fn ($q) => $q->whereNull('metadata')->orWhereJsonDoesntContain('metadata->kind', 'topup'))
+            ->where(function ($q) use ($providerReference, $fripayReference) {
+                $q->where('external_reference', $providerReference);
+
+                if ($fripayReference !== '') {
+                    $q->orWhere('reference', $fripayReference);
+                }
+            })
+            ->first();
+
+        if (! $transaction) {
+            return null;
+        }
+
+        if (! $transaction->external_reference) {
+            $transaction->update(['external_reference' => $providerReference]);
+        }
+
+        $status = match (strtoupper((string) ($payload['status'] ?? ''))) {
+            'SUCCESSFUL', 'SUCCESS' => 'succeeded',
+            'FAILED'                => 'failed',
+            default                 => null, // PENDING / inconnu : rien à finaliser
+        };
+
+        if ($status === null) {
+            return $transaction;
+        }
+
+        $message = trim((string) ($payload['message'] ?? ''));
+
+        $this->finalize(
+            $transaction->id,
+            $status,
+            'webhook',
+            $status === 'failed'
+                ? 'Payout FeexPay échoué' . ($message !== '' ? " : {$message}" : '')
+                : 'Payout FeexPay confirmé par webhook',
+            'transfer_refund_payout_failed'
+        );
+
+        return $transaction->fresh();
     }
 
     /**
